@@ -71,7 +71,7 @@
   const $ = id => document.getElementById(id);
   const fmt = (v, d = 1) => (v == null || isNaN(v)) ? "---" : v.toFixed(d);
 
-  let watchId = null, wakeLock = null;
+  let watchId = null, wakeLock = null, startedAt = 0;
   let last = null;            // 最新の測位
   let geoid = null, geoidAt = null, geoidSrc = "";
   let dem = null, demAt = null;
@@ -121,6 +121,7 @@
     const m = { 1: "位置情報が許可されていません（Chromeのサイト設定で許可してください）",
                 2: "位置を取得できません", 3: "測位がタイムアウトしました（屋外へ）" };
     $("msg").textContent = m[e.code] || e.message;
+    $("altDetail").textContent = m[e.code] || e.message;
   }
   async function start() {
     if (!("geolocation" in navigator)) { $("msg").textContent = "このブラウザは位置情報に対応していません"; return; }
@@ -129,6 +130,7 @@
       { enableHighAccuracy: true, maximumAge: 0, timeout: 30000 });
     $("btnStart").textContent = "停止"; $("btnLog").disabled = false;
     $("altDetail").textContent = "測位待ち…";
+    startedAt = Date.now();
     try { wakeLock = await navigator.wakeLock?.request("screen"); } catch (e) {}
   }
   function stop() {
@@ -158,6 +160,8 @@
       hist.push([now, msl]);
       minA = minA == null ? msl : Math.min(minA, msl);
       maxA = maxA == null ? msl : Math.max(maxA, msl);
+    } else if (watchId != null && !last && now - startedAt > 20000) {
+      $("altDetail").textContent = "位置が届きません。Chromeで開いているか、スマホの位置情報がオンか確認してください（屋内だと時間がかかります）";
     } else if (watchId != null && last && last.h == null) {
       $("altDetail").textContent = "高度がまだ得られていません（屋外で待つ）";
     }

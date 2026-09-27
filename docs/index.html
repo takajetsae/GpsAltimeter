@@ -1,0 +1,255 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#101418">
+<title>GPS高度計</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 108 108'%3E%3Crect width='108' height='108' rx='20' fill='%231565C0'/%3E%3Cpath d='M28 74 46 44 56 58 64 48 80 74Z' fill='%23fff'/%3E%3Cpath d='M72 30 80 40 75 40 75 50 69 50 69 40 64 40Z' fill='%23FFB74D'/%3E%3C/svg%3E">
+<style>
+  :root{
+    --bg:#101418; --card:#1b2129; --text:#e8eaed; --sub:#9aa0a6;
+    --gps:#4fc3f7; --dem:#81c784; --accent:#ffb74d; --line:rgba(255,255,255,.12);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--text);
+    font-family:system-ui,-apple-system,"Hiragino Sans","Noto Sans JP",sans-serif}
+  main{max-width:560px;margin:0 auto;padding:16px 16px calc(24px + env(safe-area-inset-bottom))}
+  h1{font-size:18px;margin:4px 0 14px;color:var(--sub);font-weight:600}
+  .card{background:var(--card);border-radius:12px;padding:14px 16px;margin-bottom:12px}
+  .label{font-size:14px;font-weight:700}
+  .big{font-size:52px;font-weight:600;font-variant-numeric:tabular-nums;line-height:1.1;margin:4px 0}
+  .mid{font-size:26px;font-variant-numeric:tabular-nums}
+  .detail{font-size:13px;color:var(--sub);line-height:1.6}
+  .row{display:flex;gap:8px}
+  .row>*{flex:1}
+  button{font:inherit;font-size:15px;padding:12px 8px;border-radius:10px;border:1px solid var(--line);
+    background:#26303b;color:var(--text)}
+  button.primary{background:#1565c0;border-color:#1565c0}
+  button:disabled{opacity:.45}
+  canvas{width:100%;height:220px;display:block;background:var(--card);border-radius:12px;margin-bottom:12px}
+  .msg{font-size:13px;color:var(--accent);min-height:1.4em;margin-top:8px}
+</style>
+</head>
+<body>
+<main>
+  <h1>GPS高度計（Web版）</h1>
+
+  <div class="card">
+    <div class="label" style="color:var(--gps)" id="altLabel">GPS高度（海抜）</div>
+    <div class="big" id="alt">--- m</div>
+    <div class="detail" id="altDetail">「開始」を押すと測位を始めます</div>
+  </div>
+
+  <div class="card">
+    <div class="label" style="color:var(--dem)">地表の標高（国土地理院）</div>
+    <div class="mid" id="dem">--- m</div>
+    <div class="detail" id="demDetail">現在地の地面の高さ（参考値）</div>
+  </div>
+
+  <div class="card">
+    <div class="mid" id="vs">昇降率 --- m/min</div>
+    <div class="detail" id="minmax">最高 --- / 最低 ---</div>
+  </div>
+
+  <canvas id="chart" aria-label="高度グラフ"></canvas>
+
+  <div class="row">
+    <button id="btnStart" class="primary">開始</button>
+    <button id="btnLog" disabled>記録開始</button>
+  </div>
+  <div class="row" style="margin-top:8px">
+    <button id="btnSave" disabled>CSV保存</button>
+    <button id="btnReset">リセット</button>
+  </div>
+  <div class="msg" id="msg"></div>
+  <p class="detail">※ブラウザでは気圧センサーを使えないため、GPS高度のみです。屋外で数十秒〜1分待つと精度が上がります。画面は点灯したままにしてください。</p>
+</main>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const fmt = (v, d = 1) => (v == null || isNaN(v)) ? "---" : v.toFixed(d);
+
+  let watchId = null, wakeLock = null;
+  let last = null;            // 最新の測位
+  let geoid = null, geoidAt = null, geoidSrc = "";
+  let dem = null, demAt = null;
+  let hist = [];              // [time, msl]
+  let minA = null, maxA = null;
+  let logging = false, rows = [];
+  const series = [];          // {gps, dem} 1秒ごと、最大600点
+
+  // ---------- 国土地理院 API ----------
+  function dist(a, b) {
+    const R = 6371000, r = Math.PI / 180;
+    const dLat = (b.lat - a.lat) * r, dLon = (b.lon - a.lon) * r;
+    const x = Math.sin(dLat/2)**2 + Math.cos(a.lat*r)*Math.cos(b.lat*r)*Math.sin(dLon/2)**2;
+    return 2 * R * Math.asin(Math.sqrt(x));
+  }
+  async function updateGeoid(p) {
+    if (geoidAt && dist(geoidAt, p) < 2000) return;
+    geoidAt = p;
+    try {
+      const u = `https://vldb.gsi.go.jp/sokuchi/surveycalc/geoid/calcgh/cgi/geoidcalc.pl?outputType=json&latitude=${p.lat}&longitude=${p.lon}`;
+      const j = await (await fetch(u)).json();
+      const g = parseFloat(j?.OutputData?.geoidHeight);
+      if (!isNaN(g)) { geoid = g; geoidSrc = "国土地理院ジオイド"; }
+    } catch (e) { geoidAt = null; }
+  }
+  async function updateDem(p) {
+    if (demAt && dist(demAt, p) < 30) return;
+    demAt = p;
+    try {
+      const u = `https://cyberjapandata2.gsi.go.jp/general/dem/scripts/getelevation.php?lon=${p.lon}&lat=${p.lat}&outtype=JSON`;
+      const j = await (await fetch(u)).json();
+      const e = parseFloat(j.elevation);
+      dem = isNaN(e) ? null : e;
+      $("demDetail").textContent = dem == null ? "この地点のデータがありません" : `データ: ${j.hsrc}`;
+    } catch (e) { demAt = null; $("demDetail").textContent = "標高データを取得できません（通信を確認）"; }
+  }
+
+  // ---------- 測位 ----------
+  function onPos(pos) {
+    const c = pos.coords;
+    last = { t: pos.timestamp, lat: c.latitude, lon: c.longitude, h: c.altitude,
+             hAcc: c.accuracy, vAcc: c.altitudeAccuracy, speed: c.speed };
+    const p = { lat: c.latitude, lon: c.longitude };
+    updateGeoid(p); updateDem(p);
+  }
+  function onErr(e) {
+    const m = { 1: "位置情報が許可されていません（Chromeのサイト設定で許可してください）",
+                2: "位置を取得できません", 3: "測位がタイムアウトしました（屋外へ）" };
+    $("msg").textContent = m[e.code] || e.message;
+  }
+  async function start() {
+    if (!("geolocation" in navigator)) { $("msg").textContent = "このブラウザは位置情報に対応していません"; return; }
+    if (watchId != null) { stop(); return; }
+    watchId = navigator.geolocation.watchPosition(onPos, onErr,
+      { enableHighAccuracy: true, maximumAge: 0, timeout: 30000 });
+    $("btnStart").textContent = "停止"; $("btnLog").disabled = false;
+    $("altDetail").textContent = "測位待ち…";
+    try { wakeLock = await navigator.wakeLock?.request("screen"); } catch (e) {}
+  }
+  function stop() {
+    navigator.geolocation.clearWatch(watchId); watchId = null;
+    $("btnStart").textContent = "開始";
+    try { wakeLock?.release(); } catch (e) {}
+  }
+  document.addEventListener("visibilitychange", async () => {
+    if (document.visibilityState === "visible" && watchId != null) {
+      try { wakeLock = await navigator.wakeLock?.request("screen"); } catch (e) {}
+    }
+  });
+
+  // ---------- 1秒ごとの表示更新 ----------
+  function tick() {
+    const now = Date.now();
+    const fresh = last && now - last.t < 5000 && last.h != null;
+    let msl = null;
+    if (fresh) {
+      msl = geoid != null ? last.h - geoid : last.h;
+      $("alt").textContent = fmt(msl) + " m";
+      $("altLabel").textContent = geoid != null ? "GPS高度（海抜）" : "GPS高度（楕円体高）";
+      $("altDetail").innerHTML =
+        `垂直精度 ±${fmt(last.vAcc, 0)} m ／ 水平精度 ±${fmt(last.hAcc, 0)} m<br>` +
+        `楕円体高 ${fmt(last.h)} m ／ ` +
+        (geoid != null ? `ジオイド高 ${fmt(geoid, 2)} m（${geoidSrc}）` : "ジオイド補正なし（楕円体高を表示）");
+      hist.push([now, msl]);
+      minA = minA == null ? msl : Math.min(minA, msl);
+      maxA = maxA == null ? msl : Math.max(maxA, msl);
+    } else if (watchId != null && last && last.h == null) {
+      $("altDetail").textContent = "高度がまだ得られていません（屋外で待つ）";
+    }
+    hist = hist.filter(h => now - h[0] <= 15000);
+    let vs = null;
+    if (hist.length >= 2) {
+      const a = hist[0], b = hist[hist.length - 1], dt = (b[0] - a[0]) / 1000;
+      if (dt >= 5) vs = (b[1] - a[1]) / dt * 60;
+    }
+    $("vs").textContent = vs == null ? "昇降率 --- m/min" : `昇降率 ${vs >= 0 ? "+" : ""}${fmt(vs)} m/min`;
+    $("minmax").textContent = `最高 ${fmt(maxA)} m / 最低 ${fmt(minA)} m`;
+    $("dem").textContent = fmt(dem) + " m";
+
+    if (watchId != null) {
+      series.push({ gps: msl, dem: fresh ? dem : null });
+      if (series.length > 600) series.shift();
+    }
+    if (logging && fresh) {
+      rows.push([new Date(now).toISOString(), last.lat.toFixed(7), last.lon.toFixed(7),
+        fmt(msl), fmt(last.h), geoid == null ? "" : geoid.toFixed(3), fmt(last.vAcc),
+        fmt(last.hAcc), dem == null ? "" : dem.toFixed(1), vs == null ? "" : vs.toFixed(1)].join(","));
+      $("msg").textContent = `記録中（${rows.length} 行）`;
+    }
+    draw();
+  }
+
+  // ---------- グラフ ----------
+  const cv = $("chart"), ctx = cv.getContext("2d");
+  function draw() {
+    const dpr = window.devicePixelRatio || 1;
+    const W = cv.clientWidth, H = cv.clientHeight;
+    if (cv.width !== W * dpr) { cv.width = W * dpr; cv.height = H * dpr; }
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, W, H);
+    const L = 48, R = W - 12, T = 26, B = H - 22;
+    ctx.font = "11px system-ui"; ctx.fillStyle = "#9aa0a6";
+    ctx.fillText("Altitude [m]", L, 16);
+    legend(R - 118, "#4fc3f7", "GPS"); legend(R - 58, "#81c784", "Ground");
+    const vals = series.flatMap(s => [s.gps, s.dem]).filter(v => v != null);
+    if (!vals.length) { ctx.fillText("Waiting for data…", L, (T + B) / 2); return; }
+    let lo = Math.min(...vals), hi = Math.max(...vals);
+    const span = Math.max(hi - lo, 10), mid = (hi + lo) / 2;
+    lo = Math.floor((mid - span * .6) / 5) * 5; hi = Math.ceil((mid + span * .6) / 5) * 5;
+    const y = v => B - (v - lo) / (hi - lo) * (B - T);
+    const x = i => L + (R - L) * (i + 600 - series.length) / 599;
+    ctx.strokeStyle = "rgba(255,255,255,.12)"; ctx.lineWidth = 1;
+    for (let k = 0; k <= 4; k++) {
+      const v = lo + (hi - lo) * k / 4, yy = y(v);
+      ctx.beginPath(); ctx.moveTo(L, yy); ctx.lineTo(R, yy); ctx.stroke();
+      ctx.fillText(v.toFixed(0), 4, yy + 4);
+    }
+    ctx.fillText("-10 min", L, H - 6); ctx.fillText("now", R - 24, H - 6);
+    line("dem", "#81c784"); line("gps", "#4fc3f7");
+    function line(k, color) {
+      ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.lineJoin = "round"; ctx.beginPath();
+      let pen = false;
+      series.forEach((s, i) => {
+        if (s[k] == null) { pen = false; return; }
+        pen ? ctx.lineTo(x(i), y(s[k])) : ctx.moveTo(x(i), y(s[k])); pen = true;
+      });
+      ctx.stroke();
+    }
+    function legend(lx, color, text) {
+      ctx.strokeStyle = color; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(lx, 12); ctx.lineTo(lx + 14, 12); ctx.stroke();
+      ctx.fillText(text, lx + 18, 16);
+    }
+  }
+
+  // ---------- 記録・保存 ----------
+  $("btnStart").onclick = start;
+  $("btnLog").onclick = () => {
+    logging = !logging;
+    if (logging) { rows = []; $("btnSave").disabled = true; }
+    else { $("btnSave").disabled = rows.length === 0; $("msg").textContent = `記録を止めました（${rows.length} 行）`; }
+    $("btnLog").textContent = logging ? "記録停止" : "記録開始";
+  };
+  $("btnSave").onclick = () => {
+    const head = "time,latitude,longitude,msl_m,ellipsoid_m,geoid_m,v_accuracy_m,h_accuracy_m,ground_elev_m,vertical_speed_m_min";
+    const blob = new Blob(["﻿" + head + "\n" + rows.join("\n") + "\n"], { type: "text/csv" });
+    const a = document.createElement("a");
+    const d = new Date(), p = n => String(n).padStart(2, "0");
+    a.download = `altimeter_${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}.csv`;
+    a.href = URL.createObjectURL(blob); a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  };
+  $("btnReset").onclick = () => { minA = maxA = null; series.length = 0; hist = []; draw(); };
+
+  setInterval(tick, 1000);
+  window.addEventListener("resize", draw);
+  draw();
+})();
+</script>
+</body>
+</html>

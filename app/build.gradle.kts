@@ -11,15 +11,26 @@ android {
         applicationId = "jp.saeki.altimeter"
         minSdk = 29          // Android 10 以上
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2
+        versionName = "1.1"
     }
 
+    signingConfigs {
+        create("release") {
+            // 個人利用向けの固定鍵（更新時も同じ署名になるようリポジトリに同梱）
+            storeFile = file("release.jks")
+            storePassword = "gpsalt123"
+            keyAlias = "gpsalt"
+            keyPassword = "gpsalt123"
+            enableV1Signing = true
+            enableV2Signing = true
+            enableV3Signing = true
+        }
+    }
     buildTypes {
         release {
             isMinifyEnabled = false
-            // 個人利用向け: デバッグ鍵で署名（ストア公開時は正式な鍵に変更）
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("release")
         }
     }
     compileOptions {

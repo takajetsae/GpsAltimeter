@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/bg"
+    android:fitsSystemWindows="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="16dp">
+
+        <!-- GPS 高度 -->
+        <LinearLayout style="@style/Card">
+            <TextView style="@style/Label" android:text="GPS高度（海抜）" android:textColor="@color/gps" />
+            <TextView android:id="@+id/tvGps" style="@style/Big" android:text="--- m" />
+            <TextView android:id="@+id/tvGpsDetail" style="@style/Detail" android:text="測位待ち…" />
+        </LinearLayout>
+
+        <!-- 気圧高度 -->
+        <LinearLayout style="@style/Card">
+            <TextView style="@style/Label" android:text="気圧高度" android:textColor="@color/baro" />
+            <TextView android:id="@+id/tvBaro" style="@style/Big" android:text="--- m" />
+            <TextView android:id="@+id/tvBaroDetail" style="@style/Detail" android:text="" />
+        </LinearLayout>
+
+        <!-- 昇降速度・最高/最低 -->
+        <LinearLayout style="@style/Card">
+            <TextView android:id="@+id/tvVs" style="@style/Mid" android:text="昇降率 --- m/min" />
+            <TextView android:id="@+id/tvMinMax" style="@style/Detail" android:text="最高 --- / 最低 ---" />
+        </LinearLayout>
+
+        <jp.gpsaltimeter.app.AltitudeChartView
+            android:id="@+id/chart"
+            android:layout_width="match_parent"
+            android:layout_height="220dp"
+            android:layout_marginBottom="12dp"
+            android:background="@drawable/card" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+            <Button android:id="@+id/btnCal" style="@style/Btn" android:text="GPSで校正" />
+            <Button android:id="@+id/btnQnh" style="@style/Btn" android:text="QNH入力" />
+        </LinearLayout>
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+            <Button android:id="@+id/btnLog" style="@style/Btn" android:text="記録開始" />
+            <Button android:id="@+id/btnReset" style="@style/Btn" android:text="リセット" />
+        </LinearLayout>
+
+        <TextView android:id="@+id/tvStatus" style="@style/Detail"
+            android:layout_marginTop="8dp" android:text="" />
+    </LinearLayout>
+</ScrollView>

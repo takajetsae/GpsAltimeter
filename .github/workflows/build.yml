@@ -1,0 +1,31 @@
+name: Build APK
+on:
+  push:
+    branches: [main]
+    paths: ['app/**', 'build.gradle.kts', 'settings.gradle.kts', 'gradle/**', '.github/workflows/build.yml']
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+      - run: chmod +x gradlew && ./gradlew assembleRelease
+      - run: cp app/build/outputs/apk/release/app-release.apk GpsAltimeter.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: GpsAltimeter-apk
+          path: GpsAltimeter.apk
+      # スマホから直接ダウンロードできるよう Release にAPKを添付
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: GPS高度計 build ${{ github.run_number }}
+          files: GpsAltimeter.apk
+          make_latest: true

@@ -1,0 +1,490 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#101418">
+<title>GPS高度計</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 108 108'%3E%3Crect width='108' height='108' rx='20' fill='%231565C0'/%3E%3Cpath d='M28 74 46 44 56 58 64 48 80 74Z' fill='%23fff'/%3E%3Cpath d='M72 30 80 40 75 40 75 50 69 50 69 40 64 40Z' fill='%23FFB74D'/%3E%3C/svg%3E">
+<style>
+  :root{
+    --bg:#101418; --card:#1b2129; --text:#e8eaed; --sub:#9aa0a6;
+    --gps:#4fc3f7; --dem:#81c784; --accent:#ffb74d; --line:rgba(255,255,255,.12);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--text);
+    font-family:system-ui,-apple-system,"Hiragino Sans","Noto Sans JP",sans-serif}
+  main{max-width:560px;margin:0 auto;padding:16px 16px calc(24px + env(safe-area-inset-bottom))}
+  h1{font-size:18px;margin:4px 0 14px;color:var(--sub);font-weight:600}
+  .card{background:var(--card);border-radius:12px;padding:14px 16px;margin-bottom:12px}
+  .label{font-size:14px;font-weight:700}
+  .big{font-size:52px;font-weight:600;font-variant-numeric:tabular-nums;line-height:1.1;margin:4px 0}
+  .mid{font-size:26px;font-variant-numeric:tabular-nums}
+  .detail{font-size:13px;color:var(--sub);line-height:1.6}
+  .row{display:flex;gap:8px}
+  .row>*{flex:1}
+  button{font:inherit;font-size:15px;padding:12px 8px;border-radius:10px;border:1px solid var(--line);
+    background:#26303b;color:var(--text)}
+  button.primary{background:#1565c0;border-color:#1565c0}
+  button:disabled{opacity:.45}
+  canvas{width:100%;height:220px;display:block;background:var(--card);border-radius:12px;margin-bottom:12px}
+  .msg{font-size:13px;color:var(--accent);min-height:1.4em;margin-top:8px}
+  details{background:var(--card);border-radius:12px;margin-top:12px}
+  summary{padding:14px 16px;font-size:15px;font-weight:700;cursor:pointer;list-style:none}
+  summary::-webkit-details-marker{display:none}
+  summary::after{content:"＋";float:right;color:var(--sub)}
+  details[open] summary::after{content:"－"}
+  .help{padding:0 16px 14px;font-size:14px;line-height:1.75;color:var(--text)}
+  .help h3{font-size:14px;margin:14px 0 4px;color:var(--gps)}
+  .help p,.help ul{margin:4px 0}
+  .help ul{padding-left:1.2em}
+  .help .sub{color:var(--sub);font-size:13px}
+  .help table{width:100%;border-collapse:collapse;font-size:13px;margin-top:6px}
+  .help td{border-top:1px solid var(--line);padding:6px 4px;vertical-align:top}
+  .help td:first-child{white-space:nowrap;color:var(--sub);font-family:ui-monospace,monospace;font-size:12px}
+  .risk{display:flex;justify-content:space-between;gap:8px;padding:7px 0;border-top:1px solid var(--line);font-size:15px}
+  .risk:first-of-type{border-top:none}
+  .risk .v{text-align:right;font-weight:600}
+  .chip{display:inline-block;width:.8em;height:.8em;border-radius:3px;margin-right:6px;vertical-align:-1px;border:1px solid rgba(255,255,255,.3)}
+  .ok{color:var(--sub);font-weight:400}
+  a.btnlink{display:block;text-align:center;text-decoration:none;font-size:15px;padding:12px 8px;border-radius:10px;
+    border:1px solid var(--line);background:#26303b;color:var(--text);margin-top:10px}
+</style>
+</head>
+<body>
+<main>
+  <h1>GPS高度計（Web版）</h1>
+
+  <div class="card">
+    <div class="label" style="color:var(--gps)" id="altLabel">GPS高度（海抜）</div>
+    <div class="big" id="alt">--- m</div>
+    <div class="detail" id="altDetail">「開始」を押すと測位を始めます</div>
+  </div>
+
+  <div class="card">
+    <div class="label" style="color:var(--dem)">地表の標高（国土地理院）</div>
+    <div class="mid" id="dem">--- m</div>
+    <div class="detail" id="demDetail">現在地の地面の高さ（参考値）</div>
+  </div>
+
+  <div class="card">
+    <div class="mid" id="vs">昇降率 --- m/min</div>
+    <div class="detail" id="minmax">最高 --- / 最低 ---</div>
+  </div>
+
+  <canvas id="chart" aria-label="高度グラフ"></canvas>
+
+  <div class="card">
+    <div class="label" style="color:var(--accent)">現在地の災害リスク（想定）</div>
+    <div id="riskList" class="detail" style="margin-top:6px">測位すると表示されます</div>
+    <a id="hzLink" class="btnlink" href="https://disaportal.gsi.go.jp/" target="_blank" rel="noopener">重ねるハザードマップで確認する</a>
+    <div class="detail" style="margin-top:8px"><a href="#hzHelp" onclick="document.getElementById('hzHelp').open=true" style="color:var(--gps)">この欄の見方</a>（ページ下部）<br>出典：ハザードマップポータルサイト（国土交通省・国土地理院）。市町村のハザードマップと異なる場合があります。</div>
+  </div>
+
+  <div class="row">
+    <button id="btnStart" class="primary">開始</button>
+    <button id="btnLog" disabled>記録開始</button>
+  </div>
+  <div class="row" style="margin-top:8px">
+    <button id="btnSave" disabled>CSV保存</button>
+    <button id="btnReset">リセット</button>
+  </div>
+  <div class="msg" id="msg"></div>
+
+  <details>
+    <summary>使い方</summary>
+    <div class="help">
+      <ul>
+        <li>スマホの<b>Chrome / Safari / Edge</b>で開き、「開始」→ 位置情報を「許可」。</li>
+        <li><b>屋外</b>で30秒〜1分待つと値が落ち着きます。屋内・窓から遠い場所では誤差が大きくなります。</li>
+        <li>LINEなどアプリ内のブラウザでは位置が取れないことがあります。その場合はChrome・Safariで開き直してください。</li>
+        <li>計測中は画面を点灯したままにしてください（画面を消すと止まります）。</li>
+        <li>ホーム画面に追加するとアプリのように使えます（Android：メニュー「︙」→「ホーム画面に追加」／iPhone：Safariの共有ボタン→「ホーム画面に追加」）。</li>
+      </ul>
+    </div>
+  </details>
+
+  <details>
+    <summary>表示されるデータの見方</summary>
+    <div class="help">
+      <h3>GPS高度（海抜）</h3>
+      <p>スマホのGPSで測った、<b>平均海面からの高さ</b>です。</p>
+      <ul>
+        <li><b>垂直精度 ±◯ m</b>：高さの誤差の目安。数字が小さいほど信頼できます（Androidでは「---」になることがあります）。</li>
+        <li><b>水平精度 ±◯ m</b>：位置（緯度経度）の誤差の目安。</li>
+        <li class="sub">GPSは高さ方向が苦手で、条件が良くても ±5〜10 m 程度はずれます。</li>
+      </ul>
+
+      <h3>楕円体高・ジオイド高（Androidのみ表示）</h3>
+      <p>GPSがもともと出す高さは、地球を「なめらかな楕円体」とみなした面からの高さ（<b>楕円体高</b>）です。実際の海面はその面より日本付近で約35〜45 m高い位置にあり、この差を<b>ジオイド高</b>と呼びます。</p>
+      <p><b>海抜 ＝ 楕円体高 − ジオイド高</b> で換算しています（EGM96モデル、日本付近の誤差は1 m程度）。iPhoneは端末が換算済みの値を返すため、この欄は出ません。</p>
+
+      <h3>地表の標高（国土地理院）</h3>
+      <p>国土地理院の地図データによる、<b>今いる地点の地面の高さ</b>です（参考値）。「データ: 5m（レーザ）」などはデータの種類です。</p>
+      <ul>
+        <li><b>5m / 10m</b>：地面を 5 m（または 10 m）間隔の網目に区切り、その格子点ごとに標高を記録したデータという意味です。細かいほど地形の凹凸を忠実に表せます。</li>
+        <li><b>レーザ</b>：飛行機からレーザー光を地面に当て、跳ね返るまでの時間で高さを測る方法（航空レーザ測量）。誤差はおおむね数十cm程度で、最も精密です。</li>
+        <li><b>写真測量</b>：空中写真を立体視して高さを求めた方法。レーザより少し粗くなります。</li>
+        <li><b>10m</b>：主に地形図の等高線から作ったデータで、場所によっては数 m の誤差があります。</li>
+      </ul>
+      <ul>
+        <li>地面に立っていれば、GPS高度とほぼ同じになるはずです。</li>
+        <li>建物の上の階にいると、1階あたり約3 m、GPS高度のほうが高くなります。</li>
+      </ul>
+
+      <h3>昇降率</h3>
+      <p>直近約15秒の高さの変化を<b>1分あたり</b>に直した値です。＋は上昇、−は下降。GPSの揺らぎで、止まっていても ±数 m/min 動くことがあります。</p>
+
+      <h3>最高 / 最低</h3>
+      <p>「開始」してからの GPS高度の最高値と最低値です。「リセット」でクリアできます。</p>
+
+      <h3>グラフ</h3>
+      <p>直近10分間の推移です。青（GPS）がGPS高度、緑（Ground）が地表の標高。右端が現在です。</p>
+    </div>
+  </details>
+
+  <details id="hzHelp">
+    <summary>災害リスク（ハザードマップ）の見方</summary>
+    <div class="help">
+      <p>国のハザードマップポータルサイトのデータから、今いる地点が各災害の想定区域に入っているかを表示します。</p>
+      <ul>
+        <li><b>洪水・内水氾濫・高潮・津波</b>：想定される最大の浸水の深さ。「0.5〜3 m」なら、1階の床上まで水が来るおそれがある目安です。</li>
+        <li><b>内水氾濫</b>：大雨で下水や水路があふれる浸水。市町村がデータを出している地域だけ表示されます。</li>
+        <li><b>土砂</b>：「警戒区域」は土砂災害のおそれがある区域、「特別警戒区域」は建物が壊れるおそれがあるより危険な区域です。</li>
+        <li><b>想定区域外</b>でも安全という意味ではありません。データが整備されていない場所もあります。</li>
+        <li>詳しくは「重ねるハザードマップで確認する」で地図を開くか、お住まいの市町村のハザードマップを確認してください。</li>
+      </ul>
+
+      <h3>ハザードマップとは</h3>
+      <p>洪水や土砂災害などが起きたとき、どこがどのくらい危ないかを国や市町村が地図にしたものです。このアプリでは国の「ハザードマップポータルサイト」のデータを使っています。</p>
+      <h3>浸水の深さの目安</h3>
+      <ul>
+        <li><b>0.5 m未満</b>：床下浸水程度（大人のひざまで）</li>
+        <li><b>0.5〜3 m</b>：1階の床上〜1階の軒下まで浸水</li>
+        <li><b>3〜5 m</b>：2階の床上まで浸水</li>
+        <li><b>5 m以上</b>：2階の軒下以上まで浸水</li>
+      </ul>
+      <p class="sub">いずれも「想定される最大規模」の雨・高潮・津波の場合の深さです。実際の災害では想定を超えることも、下回ることもあります。</p>
+    </div>
+  </details>
+
+  <details>
+    <summary>記録（CSV）について</summary>
+    <div class="help">
+      <p>「記録開始」→「記録停止」→「CSV保存」で、1秒ごとのデータをファイルに保存できます。Excelで開けます。</p>
+      <table>
+        <tr><td>time</td><td>時刻（スマホの時計の時刻）</td></tr>
+        <tr><td>latitude / longitude</td><td>緯度 / 経度</td></tr>
+        <tr><td>msl_m</td><td>GPS高度（海抜）[m]</td></tr>
+        <tr><td>ellipsoid_m</td><td>楕円体高 [m]（iPhoneは空欄）</td></tr>
+        <tr><td>geoid_m</td><td>ジオイド高 [m]（iPhoneは空欄）</td></tr>
+        <tr><td>v_accuracy_m</td><td>垂直精度 [m]</td></tr>
+        <tr><td>h_accuracy_m</td><td>水平精度 [m]</td></tr>
+        <tr><td>ground_elev_m</td><td>地表の標高（国土地理院）[m]</td></tr>
+        <tr><td>vertical_speed_m_min</td><td>昇降率 [m/分]</td></tr>
+      </table>
+    </div>
+  </details>
+
+  <details>
+    <summary>プライバシー・注意事項</summary>
+    <div class="help">
+      <ul>
+        <li>位置情報は<b>お使いのスマホの中だけ</b>で処理され、作者を含め誰かに送信・保存されることはありません。</li>
+        <li>例外として、地表の標高と災害リスクを調べるため、現在地周辺のデータを<b>国土地理院</b>のサーバーから取得します。</li>
+        <li>CSVは「CSV保存」を押したときに端末へ保存されるだけで、外部には送られません。</li>
+        <li>個人が趣味で作った計測ツールです。登山・航空など安全に関わる判断には使わないでください。</li>
+        <li>ブラウザでは気圧センサーを使えないため、気圧による高度は表示できません。</li>
+      </ul>
+    </div>
+  </details>
+</main>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const localTime = t => { const d = new Date(t), p = n => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`; };
+  const fmt = (v, d = 1) => (v == null || isNaN(v)) ? "---" : v.toFixed(d);
+
+  let watchId = null, wakeLock = null, startedAt = 0;
+  let last = null;            // 最新の測位
+  let geoid = null, geoidAt = null, geoidSrc = "";
+  let dem = null, demAt = null;
+  let hist = [];              // [time, msl]
+  let minA = null, maxA = null;
+  let logging = false, rows = [];
+  const series = [];          // {gps, dem} 1秒ごと、最大600点
+
+  // ---------- 国土地理院 API ----------
+  function dist(a, b) {
+    const R = 6371000, r = Math.PI / 180;
+    const dLat = (b.lat - a.lat) * r, dLon = (b.lon - a.lon) * r;
+    const x = Math.sin(dLat/2)**2 + Math.cos(a.lat*r)*Math.cos(b.lat*r)*Math.sin(dLon/2)**2;
+    return 2 * R * Math.asin(Math.sqrt(x));
+  }
+  // iPhone/iPad は OS が海抜高度を返すため補正不要。Android は WGS84 楕円体高なので補正する
+  const IS_IOS = /iPhone|iPad|iPod/.test(navigator.userAgent) ||
+                 (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+
+  // EGM96 ジオイド高グリッド（日本周辺 北緯20-50°・東経120-155°、0.25°間隔、単位cm）
+  const G = { lat0: 20, lon0: 120, step: 0.25, nLat: 121, nLon: 141 };
+  const GRID = (() => {
+    const bin = atob("TwhUCFkIaAjDCKAJ0grECwAMmwsTC9QK7Qo3C44L4gsoDFYMcQyPDLsM8gwoDVQNdg2RDakNwQ3bDfYNEg4sDj8OTw5iDn4Omw6sDrAOtQ7FDtkO5w7zDgcPHw8wDzUPPQ9SD2wPgA+ND6EPvA/TD+IP8w8PEC4QQBBMEGsQsBAJEVYRhRGiEcIR5xEHEhkSLBJREoUSsxLIEs4S3RL6EhYTHRMTEwoTDxMYExMTBxMMEzYTdhOgE5wTdxNYE0wTPBMME8ESdxI1EuERXRGnENQP6g7nDeUMLQwIDHoMNg3sDYoOKg/CDxAQ6w+YD5MP+A9REBYQVQ+iDm0Ohg5vDvINUg3pDM4M4wz/DP8MwQxBDK8LTQsmCw4L/gcHCBYIJAh4CF0JpQqjC9ILUgu6Cn0KngrsCkULowv0CyUMPQxYDIoMyAz9DCINOg1PDWgNhg2mDcUN4Q39DRgOLA48Dk0OYg5zDnwOhQ6ZDrIOxQ7PDtwO9A4ODx0PJg80D0kPXg9uD4EPmg+yD8IP0Q/rDw0QJxA2EE8QiBDcEC8RaRGQEbUR3RH8EQwSHBJBEngSpxK8EsESzxLsEgcTDRMDE/sSABMGEwET+BIFEzMTcBOYE5ITbhNKEzATEBPXEowSQhL9EaURIxF7ELgP2g7aDdoMMgwyDNUMtw1nDsQO+g4zD2gPhA+cD9UPGhAPEHwPog4GDuEN7w3NDWoNAA28DJgMfwxsDFEMDwyjCz4LEQsJC+gKtQfFB9sH6wdBCC0JfAp1C5QLCQt2CkQKaAqqCvwKXgu7C/ULDwwqDFoMlQzIDO8MDg0pDUINYg2IDaoNww3ZDfMNDA4cDicONw5IDlQOXg5xDo8OqQ6zDrcOxg7hDvsOCQ8VDycPPg9VD2oPgQ+YD6oPuw/UD/UPEhAkEDkQZhCvEP4QPxFvEZoRxBHkEfcRDRI1EmwSmhKwEroSzBLpEv0S/BLuEucS6xLuEugS5BL1EiITWBN4E3QTVRMwEw4T5hKtEmUSGRLGEVwRzxAkEF8Peg52DYMMAAw6DBkNJA7UDvwO0w6rDrAO4A4tD3wPmg9ND5wO3g10DWQNZw1BDQAN0Qy3DJUMXgwfDN4LjAs1CwsLIAs2C/wKdAeZB7sHzAcbCP0IOgofCzULugpECiYKRApzCrkKHwuFC8UL4Qv9CysMXQyKDLcM5QwLDSYNRQ1xDZwNtw3HDdsN8w0GDhAOHA4sDjcOPA5IDmcOiw6dDp4Oow65DtYO6g73DgkPJA8/D1UPaQ9/D5UPqw/DD+AP+g8OECIQRxCFEM8QExFLEXwRpxHIEeER/BEmEloShRKgErMSzBLmEvIS6xLfEtwS3hLbEtES0RLrEhkTRBNXE0wTLBMKE+gSwRKLEkcS8hGHEfoQSxCBD6MOsg25DO8LqwsfDCMNPQ7uDgsPxg51DlAOZA6dDtQO1A5/Du4Naw0wDS4NKQ0CDdIMvQy8DK4MgwxADOULdwsmCywLewunC1ALPgeAB7cH0AcZCOMI9QmyCr4KXgoSCgkKHgo8Cn4K6wpWC5MLrgvSCwYMNAxXDIEMuAzlDAANHA1PDYkNsA3ADc4N5Q34Df8NBg4UDh4OHw4jDj4OZQ6BDokOjQ6gDr0O0w7hDvQOEQ8uD0IPUg9oD4QPnw+2D84P5w/9DxMQMhBlEKkQ8RAxEWYRkRGzEc8R7hEWEkMSaxKLEqcSwxLZEuAS3hLdEt8S3RLQEsISyBLrEhsTPBM9EyMT/xLcErsSkxJbEg4SqBEdEWQQgg+NDpoNtAzwC3gLggsgDB4NFg6zDt4Ouw6BDlMOPw5DDk4OQQ4GDqgNUg0rDSgNIg3/DM4MrgyqDLcMuQySDCwMogtGC2ELzwsGDJ4LHAd1B8AH6gc2COMIvQlDCj8K+wnWCd8J7gkFCk0KxQouC10LcguhC+YLGQw0DFYMjQy/DNoM8QwkDWYNlg2sDb0N1g3rDe4N7Q32DQMOBw4KDhwOPQ5bDmoOdg6ODqwOww7SDucOBA8gDzMPRQ9gD4EPnQ+xD8QP3Q/4Dw4QJhBOEIsQ1hAdEVURgBGjEcMR5BEJEi8SVRJ5EpkSshLCEsoS0xLdEuIS2hLHErwSyhLvEhcTKRMcE/kS0RKtEocSUhIFEp8RGxFsEIYPdw5kDXYMxAtcC04LrAtlDEEN+w1tDp0Opg6aDn4OWA42Dh8ODA7nDacNYA0wDSANHA0EDc8Mlgx/DJcMvAysDEIMpwtBC1gLvgvsC4ULGwd6B88HBQhRCN8IgAnWCcgJoAmdCbUJwQnXCSgKqAoJCyULLAteC7EL8AsKDCgMYQycDL0M0wz+DDkNZw2ADZgNuw3WDdsN1A3WDeQN8A33DQQOGg4xDkQOWQ51DpMOqw6/DtcO9Q4RDygPQg9lD4gPnw+rD7kP0w/wDwUQFhA2EHEQvxAKEUQRbRGQEbQR2RH9ESESSBJvEo4SoRKrErYSxRLSEtISxxK/EsYS3hL6EgoTBxPxEs8SpxJ9EkcS9xGFEfQQSBByD2kOQA0rDGQLAgsCC1kL+QvDDIINCg5VDnwOlg6lDp0OfQ5TDi8OEQ7tDbYNbg0uDQ4NBw33DMQMfQxQDFgMdQxeDPMLYQsCCwYLQAtNC/cKOQeUB+sHIwhfCMQINAltCWkJYAl5CZcJngmxCQIKfwrWCuMK3goLC2MLqwvMC+wLJwxpDJYMswzZDAkNLw1JDWgNlQ27DcgNwg2/DcgN1A3fDesN/Q0RDiUOPA5YDnMOjA6lDsMO5A4ADxwPPQ9lD4QPkg+XD6MPvA/WD+cP9Q8XEFcQqxD6EDMRWRF6EaERyRHuERISOhJlEoQSkxKaEqUStRK7ErESqRK5EuASBRMPEwET6BLMEqcScxI0EuYRdxHaEBYQNw88DiAN+wsKC4gKgwrfCnoLPAwHDbMNJQ5hDoIOmQ6mDqAOig5qDkMOGA7rDbgNew06DQoN8wzgDLMMawwtDBEMAAzNC2gL+wq5CqwKrAqRCk8KXQe6BxoIVQh6CK4I7QgXCSQJNQlWCW0JaAlvCbQJJAp1CoUKhgq0Cg0LXAuKC6wL3wsbDEsMcwyhDNEM+gwaDUANcg2eDbQNtw20DbMNtQ29DcwN4g36DREOKQ5BDlgOcQ6RDrYO2Q71DhAPMQ9UD2sPdg9+D48PpQ+1D70PzA/1Dz0QlRDmEB8RRhFnEY0RtRHYEfsRJxJWEngShhKMEpcSpRKjEpESixKvEu8SHRMdE/sS1RKsEm8SFhKzEUsRxRAEEAsP9w3fDM0L1goyCg0KZQoIC8YLhgw5Dc0NMA5sDpEOpA6iDo8OeA5eDjgOAw7PDaYNfw1MDRMN5QzDDJYMUQwGDMgLjgtEC+8KrQqPCn0KWgomCvYJawfTB1EIpgjCCMUIzQjaCOUI9QgGCQYJ9AjzCCcJgwnQCfUJEQpOCq0KCAtIC3MLmwvFC+8LHQxUDI0MwgzzDCUNVw1/DZgNpg2rDagNoQ2hDbANyg3mDQEOGg4yDkkOZQ6JDrEO1A7uDggPJA89D08PYQ96D5cPqA+lD54Pqg/WDx4QcRC+EPwQKxFTEXoRnhHAEeURExJHEm0SexJ/EosSmRKWEoASdxKcEt4SDBMIE+ESshJxEgUSeBHwEHsQ7g8SD+cNpwyMC6oKDgrUCRMKtwqEC0cM7gx5DeUNMA5lDo4Oog6UDnAOTg41DhMO2w2iDX0NZA07Df8MwwyTDF4MFgzIC4kLUgsOC8EKiQpzCmYKRgoaCv0JXgfVB4QIEglACRwJ3AirCI8IgAhwCFYIPwhACGsIsQj3CC8JaAm2CRoKggrcCiELVAt8C6QL1QsNDEcMgwzFDAgNPQ1eDXUNiw2cDaINnQ2dDakNvg3VDe4NCw4oDkMOYQ6DDqcOxg7iDv4OGQ8uD0APXw+ND7QPuQ+gD4gPjg+3D/MPNxB+EMQQAhE2EWERhxGrEdMRBhI9EmQSchJyEnwSjhKREn8SdBKOEsIS5BLYEqsSaRIBEmERpRAHEJQPCA8ZDs4MgwuNCgUK2wkJCpAKVQskDNEMVQ24Df4NKw5PDnMOhw51DkYOGg4ADuMNrw1wDT4NGQ3tDLQMfAxJDAoMvQuAC3ALdAtSC/YKjApJCjQKLQoiChUKSwfQB7EIgwnZCZsJCwmACCII5QewB4AHZwdzB58H1wcQCEwIkQjjCEEJrgkiCo4K5AonC2ULowvbCwoMPwyGDNUMFA05DVENbA2HDZkNog2rDbgNxA3QDeMNAg4lDkQOXg54DpIOrA7JDusOCw8iDzgPXw+UD7cPrQ+CD2APZg+OD8EP+Q88EIoQ1BAQEUARbBGYEcYR+hEvElYSYhJhEmkSfBKJEoUShBKdEsQS0hKvEmMS+hFkEZgQvQ8SD5oOCw4ZDdsLvwojCgsKSQq6ClYLCgywDDENjw3XDQgOHw4vDkYOVw5HDhUO4A2+DaMNdQ00DfEMtAx6DEUMHAzyC7ALZgtPC44L6QvuC2wLpQoOCtoJ5An0CfIJRQfPB8kI0glWCg8KOAlPCKoHRAf2BrEGjgaeBtIGCwdAB3wHxAcSCGgI0QhQCdUJRwqmCgALWguiC9ML/ws9DIwM0wwFDSwNUQ1zDY4Now24DcoN0w3YDegNBw4rDkYOWQ5rDoAOmA61DtkO+Q4PDyQPRg9xD4YPcA9BDyYPOA9oD54P1w8aEGgQsRDsEB8RUhGGEbgR6hEYEjsSSRJKElESZBJ3EoUSnRLFEucS2BKIEgkSbhGwEMYP0g4KDncN3gwNDCILfgpfCq8KKwutCzMMtwwmDXQNrg3hDQUODw4ODhYOIg4TDt0Nlg1fDTsNGA3nDKcMXAwTDN4LwwunC24LLws6C7QLSgxkDLwLqgrNCXcJfAmMCYkJQQe9B6wIzQl9CkIKPQkHCCUHpwZSBgMG0wXhBSEGbQaxBvcGSAefB/sHZwjnCGUJyQkYCm4K1Qo5C4YLvwv5CzwMgAy/DPsMNA1iDYQNoA29DdMN3Q3iDfQNEw4yDkQOUQ5lDoIOnw66DtIO5g7yDv0OFA8wDzsPJg8GD/0OHQ9ZD5wP3Q8iEGYQohDUEAYRPxF5EawR1xH9ERoSLBI0Ej4STBJfEnwSrBLkEvsSxRI+Eo4R0RD+DwAP6A3tDDEMpAsqC9IKywokC7ALNQyfDPwMUw2VDb0N1w3yDQMO/g3vDesN8Q3eDZoNOQ3lDLkMrAyiDHwMMwzcC54Lhgt5C04LGAsiC5QLHQwtDH8LagqLCSwJIAkbCQkJLAeGB00IbglGCisKFAmlB5MGDwbTBZ8FfQWVBecFSgagBu8GSAeuByAIoAgjCYwJwgnVCfIJOQqiCg4LaQu0C/QLMAxyDL8MDQ1ODXwNoA2/DdUN3g3nDf0NHw45DkMOTg5qDpQOuQ7MDs8Oyw7GDsgO1g7sDvsO+Q7yDvwOIw9jD60P9w85EHAQmxDFEPgQNBFxEaIRyRHnEQASFRIlEjISPBJLEm4SqRLhEt0SexLOEQoRSRBxD1wOFg3pCx4LyQrTCiALnws2DMEMIw1kDZkNyg3rDfkN/Q3/DfcN3g3DDboNug2dDUkN1Ax3DFkMcgyTDIgMPgzTC38LYgteC0ILCgvrChALTgtCC7sK9QlaCRMJ9AjOCKcIAgc2B80H4gjgCfUJ5ghTBxwGowWkBb4F2wUZBn8G6wY9B30HwwchCJkIJQmxCRQKLgoLCt4J2gkSCnYK6wpXC60L8QszDIMM3AwuDXANoQ3DDdUN3A3pDQoONg5UDlwOYg56DqIOwQ7EDrEOmg6MDo0Ong63DtIO5Q70DgcPKw9mD7IPABA+EGoQjRC3EO0QKRFhEZERuRHWEe0RAhIYEikSMxJAEmYSoRLGEqASHxJsEboQCRAnD+wNfAxAC5wKrAo/CwUMvQxIDaMN1g31DQgOEA4MDgIO+A3qDc0NpA2DDXgNbw1CDeQMeAw7DEoMjQzFDLYMVQzNC2MLOws7CyoL6wqdCmoKVAozCu0JmAlZCTAJ/Qi1CHYI0AboBlkHXwh6CcQJ2QhGBwUGowXuBW4G4gZRB8QHJQhfCHwImQjNCCAJkwkUCnsKogp/CjAK5gnKCe8JUQrSCk0Lrwv/C1AMqQwEDVQNkg26Dc0N2Q30DSoOaA6PDpQOiA6GDpIOmQ6MDnEOWQ5UDmIOfA6aDrYOzw7jDvUOEw9KD5gP6A8lEEwQcBChENsQFBFFEXURoRHBEdYR6hEEEhwSKhI9EmkSoRKvEmoS3hFEEbYQDxAKD50NGQwDC7kKOgstDB8NyA0dDkAOVQ5iDlkONA4GDuYN2A3EDZoNZA0/DTANGA3YDHUMJwwhDGYMwgzrDLgMNQyaCygL+gr5Cu4KtgpbCv0JuAmRCYEJgQl/CWIJGwm4CGMImQalBvkG5QcFCX4J1wh9B2EGHwabBloHBQiNCPwITgl7CYoJjgmYCbIJ5AkuCoAKugrBCo4KMgrVCakJzQk4CsMKRgu0CxYMdgzUDCkNbA2ZDbYN1g0LDlkOpQ7KDr0OkQ5nDk4OQA4zDigOKQ4+DmEOgg6ZDqcOsQ68DskO5g4gD3IPxQ//DyUQThCHEMQQ+RAnEVgRhhGlEbYRyxHrEQkSHxI9EnISphKbEjsSsBE3EcoQGRDhDkgN1gsXCz4LFQwpDQsOhQ6mDqYOqg6sDosOQw76DdQNzA23DX0NOA0ODf0M2QyEDBoM3gv6C1YMpgypDFAMwQs0C9YKrQqmCp4KfQo8CugJmglqCWUJegmGCWYJEwmoCEoIWQZmBqEGXQddCPEIpAi9B/cG1wZUBwoIqQgiCYEJzgkMCjgKVApeClUKRgpCClUKegqbCpkKYgoDCqwJjQm9CSkKsAo4C7oLMwyeDPUMNg1nDZQN0A0jDn4OwQ7KDpgOSA4ADtkN1A3jDf0NIQ5ODnwOmw6jDp0Olw6bDqsOzg4OD2IPsA/mDwsQNhByELEQ5xAXEUkRcxGJEZMRqhHSEfcRERI3EnQSoRJ7EvsRbBEMEbUQ8g+QDuwMuAttC/0L/Qz6DasO+Q79DuYO1A67Dn8OJg7dDcYNyQ2sDV4NCw3mDOUMyAxrDPALpAuwC/ALGQz6C5sLKQvOCpYKeQpoCl4KVAo5CgEKsAllCTwJNQkxCQ4JxQhpCBQIFgYtBlYG2AaaBysIMwjSB3cHeQfUB04IuQgPCV0JsAkICmAKqwrXCtoKuQqEClQKOwo+CkgKOwoKCsYJkQmJCbcJFwqcCjULzAtODLIM+gwyDW8Nvg0fDnUOnA59DiYOwQ17DWoNiw3FDQIONg5jDoQOlA6PDoIOfw6QDrEO4Q4iD20PsA/fDwMQMBBrEKkQ3xASEUMRZRFuEXMRjxG+EeUR/BEjEmMShRJAEp4RBRG3EHEQqg89DrYM3wsKDOcM5A2jDg4PMg8hD/UOvw5/DikOzQ2UDZENmg10DRgNxQy3DNoM2wyFDPkLhgteC2cLZwtAC/0KwAqbCoQKagpOCjsKOQozCgkKsQlECe4IvwimCIUITggLCMYH2AUDBiwGgQYDB3sHtge8B7sH1gcPCFMIlgjbCCYJegnYCTsKlgraCv8K/grYCpYKTAoQCu0J2wnPCb8JqAmTCZAJtgkUCp8KPAvQC0sMqwz4DD8Njw3lDSsOPg4RDrkNZQ0+DVUNmw3wDTMOVg5hDl8OVw5NDk4OZw6XDtMODg9HD38PsQ/aDwIQMhBrEKEQ0hAEETMRTRFREVgRfBGvEdER3xEAEjkSSRLlEScRiRBQECcQcg8aDscMSQzRDNgNsw4bDy4PHA/2Dr0Odg4jDsUNbw1CDUcNUg0sDdcMlQyiDOIM+gytDBYMgwsqCwYL8QrVCrYKogqXCoYKZgo9Ch0KEQoJCuQJkAkeCbQIbAhBCBoI6geyB3cHoQXjBRsGYga9BhkHYgeaB8gH9AcfCFIIlAjlCDoJignXCR8KYQqbCs8K+AoKC/QKrwpMCukJowmMCZwJtQm7Ca0JpwnKCSAKmgomC7YLOwynDPcMOA13DbEN0A3HDaMNgw2GDbYNBQ5RDnsOeA5YDjEOFQ4PDiYOXw6wDgIPPw9nD4UPpA/KD/kPMBBlEJAQuBDlEBARKhExEUERbBGgEbsRwBHUEfoR6xFlEZUQ/w/mD+MPVQ8lDgUNxAx+DY0OOQ9LDwgPwA6MDmIONQ75DawNXg0xDTQNRg00DfoMzAzYDAUNCg2zDBoMgQsbC+YKzAq7Cq8KpAqUCngKTwogCvQJ1Am8CZsJYAkLCa8IYQgiCOoHsAdzBzQHbQW6BQMGUQakBvEGOAd6B7YH6QcZCFYIrQgTCXQJwwkBCjIKWAp5CqIK2AoTCzULIgvSCloK6AmrCbEJ3An8CfcJ3AnKCdkJEgp4CggLqQs2DJUMzwwBDT4Nfw21DdkN8w0TDkAOdg6gDqsOjw5aDiYOBw4HDi0Odw7VDiwPYg93D34Pjg+xD+cPIxBWEHoQmhDBEOsQCREYES0RWhGLEaQRphGtEbIRdRHIEOwPag94D6MPQg8/DkgNJA3mDecObQ9KD9UOcw5JDkUORA4rDu0NnA1lDWINgA2ODXUNSw0wDRsN4wx0DOYLaQsWC+cKywq5CqkKlgp5ClQKLAoACs4JmQlrCUgJJQnyCK0IXQgOCMYHggdAB/0GQAWLBdoFMQaJBtYGGgdbB5kH0AcICFIItAgiCYYJ2QkdClUKfwqaCrMK2AoNC0MLYQtOCwYLowpXCkEKWApxCmkKPgoECtYJywn5CWkKCAuoCyQMdgy6DAcNYQ28DQgOQA5kDnwOjQ6ZDpYOfw5aDjUOIQ4nDkwOkw7rDjoPaA9zD3APeA+aD9MPERBFEGcQhRCqENIQ8RACERcRPhFrEYcRkBGPEXAR/hArEE4P7Q4nD30PRQ9nDokNZQ0UDvwOcQ9LD98OkA6DDpoOpw6HDjYO0A2EDXUNlA2yDagNdQ0pDc8MYgzqC3wLLwv/Ct0KvgqjCo0KdApSCisKBwrjCbEJbwktCfwI2giyCHMIIQjMB4MHRgcMB80GHgVlBbMFDAZmBrQG+AY6B3oHtgf1B0EInwgFCWQJuwkOCl0KnwrNCugK+goQCzMLYQuIC5ELdgtLCy4LKAshCwALvApiCgkKygm9CfUJbgoJC6ULLgyjDAkNYg2wDfENIw4+DkUOQQ4/DkEOQA45Di8OKg4zDlMOjg7aDiEPTA9ZD1oPZg+KD8EP/w8zEFoQehCdEMAQ2RDoEPwQHBFCEWERdBFzEToRnxC0D+kOuw4sD6cPgQ+rDsUNhw0PDtkOTw9IDw0P7g7/DhUPAA+wDjUOtQ1ZDTMNNw0+DScN5wyGDBQMoQtCCwML4wrQCrgKmQp8CmcKTwooCvkJzgmqCX4JPwn2CLYIhQhTCBAIvQdvBzMHBwfaBqMG+wREBZQF7QVDBo8G0QYSB1YHmAfbByYIfgjbCDYJjgnmCT4KjwrSCgELGwslCzALUguOC9AL+wsHDAIM9gvbC6ALQAvHCk4K7AmzCbEJ7wlpChILzwt9DP4MTA13DZkNvQ3aDeUN4g3hDekN+A0FDgwOEQ4eDj4OdQ66DvoOJA84D0QPWQ9/D7QP7A8gEEwQchCREKkQuRDJEOIQABEeETkRUxFYERYRZhB3D9EO5w6aDzMQABD8DtsNXg2xDV8O2w76DvEO/w4gDyUP6A5xDucNcA0ZDd4MsQyEDEwMBAyvC1ULBgvNCq8KogqVCoAKZwpSCkAKIwrwCa0JbwlDCR8J8QixCGwILgj0B7IHaQcnB/cG1AavBn0GzQQWBWsFyAUfBmYGowbiBiYHaweyBwAIVwi0CA8JZgm7CQ0KXAqpCvAKKAtFC1ILZQuUC9kLHAxMDGcMcQxgDCAMqwsVC4AKCQq5CZIJmwnlCXgKQAsLDKIM8QwSDS0NVw2HDagNtQ24DcEN0Q3hDe0N9g0KDjMOcA60Du0OEA8kDzYPUg97D6oP2w8MED4QaBCFEJEQmhCvENQQ+BAOER0RNxFFEQcRUhBqD+4OUg9OEP4QnRA5D6oN0gztDIoNEw5PDmUOhA6pDqQOXg7wDYkNQQ0LDcwMeAwcDMcLfwtCCw4L4wrACqEKgQpiCkgKNgomChAK5gmkCVYJDwnhCMIInAhhCBgI0weYB2EHJwfwBsUGpAaBBlUGowTeBDMFlwX0BTwGdgaxBvMGOgeEB9UHLwiNCOgIPgmRCeAJLQp9CtEKIwthC4QLlwuxC9oLDQw/DGwMkAyYDGcM8AtIC50KFgq+CYsJeQmWCfkJnQpaC/sLYgyeDNEMEA1VDYsNqA2yDbsNxw3VDd8N7A0IDj0Ogw7GDvYOEA8fDzIPUg98D6cP0Q/+DzAQXhB6EIEQhhCiENQQABEOERERJxE/EQoRVhB2DyIPzw8TEdYRORFeD00NFAwGDKkMUA2oDcoN6A0FDgIOzg2CDUoNMA0bDecMjgwlDMkLhQtYCzoLIAv6Cr8KeAo7ChkKCQr3CdAJlwlVCRgJ6AjECKIIbgggCMQHbwcxBwIH1gapBoMGZgZLBikGkwS3BAMFawXRBR4GVwaPBtAGGAdkB7YHDwhpCMAIEwloCb4JEwpmCrwKFAtkC5wLuQvLC+ALAQwrDFoMhgycDH4MGAx2C8IKLArJCZEJdgl5CasJGAqwClEL2wtEDJYM4QwoDWMNiQ2dDaoNtg3DDc4N3w0DDj4Ohw7GDu8OBA8UDywPUA98D6gPzw/2DyEQTRBrEHQQexCcENcQCBEUEQ4RHxE6EQsRWxCHD1sPShDOEaESzhGIDwYNgwteCxYM5QxeDYwNpA26DbwNmg1hDTINGg0GDd4MmAxEDPILsQuEC2kLUgskC9IKawoYCu0J2wm9CYMJPwkNCfYI7QjdCLEIYQjzB3sHFwfSBqUGfQZWBjcGJQYWBv0FlQSoBOwEVgW/BQ8GRwZ9Br4GBwdTB6UH+wdSCKMI8QhECZ8J/AlTCqYK+wpMC40LswvIC94LAAwsDFcMeQyKDHkMNAyzCw0LagrsCZ4JeAlvCYQJxQk7CtsKhQsVDH4MxQz/DDMNXQ14DYgNlA2hDbANyA3xDS0Obw6kDscO4Q78Dh4PRw92D6YPzw/vDw0QLhBMEGAQcRCXENQQCBEVEQsRFBElEfAQRxCOD5QPwhB1Ek0TTxLBD/cMRAsPC9ELuQxMDYkNpA28DckNtQ1/DToN+wzKDJ8MbwwzDO0LpwtvC04LNQsHC64KPgrjCbMJnQl2CTEJ6QjECMYI1QjMCJYINgi8B0UH6AarBn8GUgYjBgEG8QXnBc8FfgSTBNkEQwWsBfsFMwZpBqoG8gY+B48H5gc/CJEI2wgnCXsJ1AksCoEK1worC28LmQuxC8wL9wsqDFQMagxvDGUMQwzzC28LzAowCr8JgQlpCWwJkgnyCZEKUQv/C3kMwQz1DCgNVA1uDXYNeQ2EDZsNvw3xDSwOYQ6FDqEOwA7pDhQPPA9oD5wPzA/pD/gPCxAoEEgQZxCTEM4QAhETEQcRAhH8ELkQGhCKD8oPKhHyEr0TmhLnDwANNgvrCpoLegwRDVUNdg2YDboNww2bDUgN5QyTDF4MNwwIDMQLdAsuC/8K3gquClkK7gmVCWMJSQkjCeMIoAh6CHUIdgheCCEIyQdqBxsH5wbGBqEGZQYeBuUFxgW0BZcFOwRhBLAEGwWBBc8FCwZGBokG0gYdB20HxgcjCHsIxwgNCVUJown2CU4KqwoIC1QLhQufC7gL4gsWDD8MUAxPDEkMPQwUDLoLLguQCgoKsAl9CWQJbwm5CVIKHQvgC28MygwODUwNeQ2IDX8Ndg2ADaAN0g0PDkoOcg6EDpMOtQ7mDhQPNg9aD40Pww/jD+sP8w8PEDkQZBCQEMYQ9xALEQIR7xDQEHoQ5g9/D/EPaxElE8gThBLID+0MJgvJClYLFwyeDN0M/AwjDVkNgg15DTMNywxsDC8MBwzZC5YLRAv1CrYKgQpDCvAJkQlACQ0J8AjTCKcIcwhHCCQIAAjNB4sHRwcQB/QG8AbsBssGfQYYBsEFjgVxBVAF7AMnBH8E5ARDBZEF1QUaBmQGsQb/BlAHqAcFCF4IrgjzCDUJeAnDCRcKdgrZCjILcAuUC60LzAv1Cx0MNAw4DDIMJQwKDNALcAv2CnwKEQq6CXgJYAmTCR4K5QquC04MwgwgDW0NmQ2cDYcNeg2JDbIN6w0rDmMOgg6HDo0Org7nDhgPNA9ND3sPsw/ZD+MP6A8FEDQQYxCMELcQ4xD7EPcQ3hCrEEMQtA9pD/QPZhHwElQT7xFDD5gM/AqoCiMLywtCDHgMjQyoDNgMCw0VDeMMiAwwDPQLyQuZC1oLEQvICn4KMgriCZAJQgn+CMsIqgiVCH8IXwgzCPoHtwdwBywH8wbQBsgG1AbXBrAGVgbjBYEFRwUoBQgFuAMFBF4EtgQGBVMFoAXwBUEGlAbrBkMHnAfyB0UIkgjZCBoJWgmcCeYJOwqYCvYKRwt/C6ELuAvUC/gLGAwpDCQMDQzrC8MLjwtKC+8KfwoHCp0JaAmKCQcKvQp2CxEMjwz8DFQNgg2EDXUNdw2UDcIN9A0nDlQObg5yDngOnA7aDhIPMQ9GD2wPnw/FD9IP3A/7Dy0QXBCAEKQQyhDlEOcQyhCGEAsQdg80D78PCxFGElkS0BBIDvELrAqNChcLvAsuDGIMbQxxDIQMngyeDHAMJAzdC6gLeQtBCwILxwqMCkUK7QmUCUkJDgnbCKsIhQhvCGQIUQgpCOoHoAdWBxQH2gauBpcGjwZ/BkwG8gWKBTkFCwXvBM0EnwP4A0wEkwTUBB4FcQXHBRwGdQbVBjgHlAfmBzAIdwi7CPwIOwl6CbwJAwpTCq0KCAtUC4ULnwuyC88L8wsSDBYM/wvaC7oLoQt/CzkLxgo1CrIJbwmMCf8JnAo3C7oLLwygDAANOQ1LDVYNdA2mDdUN9Q0QDi0ORQ5TDmIOiQ7HDgQPKg9CD2IPiw+pD7cPxQ/pDx4QUBB1EJUQtxDRENMQrxBVEL8PGg/UDk4PXxA2EecQOQ/lDAILOQpwCh8LyQs7DG8MeQxvDGYMXgxFDBIM1AueC3ELOQvwCqUKbQo/CgUKswldCRsJ8AjLCKEIdwhbCEsINQgMCM8HiwdLBxAH0waZBmoGRwYfBuEFjgU9BQQF5ATIBJ8EfgPdAy4EbQSnBPAERgWgBfgFUwa3Bh4HewfMBxMIVwiXCNQIEAlQCZMJ1gkeCm4KxwobC1kLfAuNC6ELwQvlC/sL9wvhC8kLtguZC1UL2go7CqoJXwlzCdgJXQrcCkoLtQspDJUM4wwTDT8Neg29De4N/w0EDhEOKg5FDmEOiQ6+DvQOHQ87D1kPeA+OD5sPrg/XDxEQSBBwEI8QqxDAEL0QjRAaEGUPqg5YDrUOew/dDyQPWQ1PC/4JyAlfCiwLzgswDGIMcgxrDFkMPwwXDOMLrguEC1kLFAu3ClsKHQr1CcgJhAk4Cf0I2Ai6CJUIbAhJCC0ICwjaB54HYQcqB/UGvAaBBk0GIAbvBa4FXwUXBeYExgSmBHkESQOpA/0DQAR/BMoEIwV/BdoFOAaaBvoGUQefB+kHMAhwCKoI4wgkCWoJsAn2CUAKkgrjCigLVAtsC3wLkQuxC9QL6wvvC+MLzQunC18L5QpFCqoJSQk/CYQJ8QliCssKOQuzCzAMmwzsDDMNfw3JDfsNCA4BDgQOHQ5EDmwOkg66DuIOBw8oD0gPZA94D4cPoA/ODwwQRxByEI0QnxCqEKMQahDhDw8PPA7VDQcOcg5YDkENdQvXCS0Jjgl1CkoLzgsUDDwMUwxWDEkMLQwBDMsLlgtnCzML5gqCCiIK4Am3CY4JVQkUCd4IuwieCHoIUggsCAcI3AelB2gHLgf6BscGkwZhBjkGGQbzBbgFZwUVBdMEpgSCBF4EDwNuA8kDFwRfBK0EBQViBcIFJQaGBtwGKAdwB70HCghPCIsIxQgECUcJignNCRUKYwqyCvkKMQtXC2sLeguPC7IL2AvwC/EL3Au4C3sLFwuICucJYwkjCTMJgAnqCVoK0ApSC90LYQzQDCsNeQ28DeoN+g31DfUNDA44DmkOkg6yDs8O7Q4ODy8PSw9iD3gPlg/HDwYQRRBzEIkQkBCTEIkQTBCzD8cO2Q1TDUsNUw3JDHILzQm4CLkImQmxCncL1Qv+Cx0MOAxBDDUMFwzoC6sLaQspC+kKnApFCvMJtQmFCVUJHQnkCLgImAh6CFUIKwj/B9UHpgdxBzgHAAfKBpYGYgY3Bh0GEQYABtQFhAUiBckEjQRpBFIE5wJCA54D9QNGBJUE6ARCBaYFEAZzBsUGCgdPB50H7Qc3CHkIuQj2CDAJZQmfCeYJNgqHCtEKEgtGC2gLeQuGC6ALxQvlC+8L5AvPC64LcAsFC3AK0glaCSsJSgmhCRIKiwoMC5wLMgy6DCMNaw2fDcMN2A3fDeYN/Q0pDl0OiQ6pDsQO4A7+DhsPNQ9ND2cPiA+4D/cPOxBwEIgQihCHEHoQORCSD48OiA3fDJgMRAxhC/AJkggJCJYIyAnrCpQL1AvtCwkMIgwmDBMM7wu9C3sLMAvkCpwKVwoTCtQJmwlhCSMJ5QixCI0IcghTCCoI+gfIB5gHaAc3BwQHzwaaBmQGMAYFBu4F7QXvBdQFjAUmBcMEgQRhBFEE0AIjA3kD0wMrBH4EzwQmBYoF9gVZBqsG8QY7B4sH2wcjCGcIrQjuCCIJSQl3CboJDgpiCq4K8goyC2QLfwuLC5sLuAvXC+kL6wvmC94LxwuJCxoLhArsCYEJYwmVCfkJcArsCnYLDgyjDBUNWA19DZcNsg3MDeQNAg4rDloOhQ6nDsUO5A7/DhQPJg87D1YPdw+kD+MPLhBuEI4QkhCNEH0QNhCFD3cOYg2dDB8MfQtdCu4I3QfFB6oI+AkIC5ILwAvVC+0L/Qv1C9kLsguBC0UL/gq1Cm8KMAr1Cb4JhglHCQIJwAiMCGgISQglCPgHxAePB1sHKgf6BskGmAZnBjYGAwbWBbkFsgW0BaIFZwULBbIEdwRbBEkEvgIFA1IDqwMMBGoEwwQcBX4F5AVABo0G1gYnB34HzAcMCEoIkQjZCBEJNQlaCZYJ6Ak9CokK0AoXC1YLfQuNC5gLrQvKC+ML8Av0C/YL8wvgC6YLOQuiCgwKsAmwCQEKdwrwCmsL8wt/DPMMOA1YDXANkg29DekNEg46DmEOhA6lDscO6Q4CDxAPGw8tD0gPaw+ZD9oPKhBxEJcQnhCaEIoQQhCUD44Ofg2pDPoLFQvICWcImgfQB94IJQoUC4YLqgu7C8kLyQu0C5MLbAtACwsL0AqSClMKEgrTCZkJYwkpCesIrgh2CEYIGQjsB74HjQdbBycH8wbCBpIGZAY7BhMG6AW6BZEFdwVoBU4FGQXRBI4EYwRMBDMEpgLlAi0DhwPuA1gEvAQdBYAF3gUtBm4GtAYKB2kHuAfvByEIYwiwCPMIHglDCXgJwQkSCl8Kqwr5CkELcQuFC44Lnwu8C9sL8Qv4C/YL9wv8C/ILuAs5C5AKBQraCRgKjgoFC2wL1AtJDLcMBw00DVMNeQ2sDeINEg47Dl4OfA6bDr4O4A73DgIPCg8dDzwPZQ+aD+MPNxB9EJ4QoRCdEJEQURC1D8gOyg3pDAMM1wphCRQIhwf8Bx4JUQohC4ILogurC6gLlwt6C1kLMwsFC88KmQpjCigK5QmgCWMJMQkDCdEImQhcCB4I4geuB4EHWAcqB/cGwgaPBmEGOgYZBvsF2gWuBX0FTwUnBfwEyASRBGUESwQ2BBkEhgLHAhIDbQPWA0EEqAQPBXUF0QUYBlAGjQbiBkQHlgfLB/QHLgh8CMkIAwkuCV4JnQnmCTQKhgrbCicLWwtzC34LjgusC9EL7wv9C/sL9wv+CwsM9QuUC/EKUQoHCjAKngoPC2MLrAsHDHAM0AwUDUMNbQ2dDdANAA4rDlAOcA6PDq8OzA7fDusO9g4NDzAPYA+hD/QPTBCLEKIQnxCZEI4QVBDJD/cODA4WDfALdgrbCKoHZwccCFAJbgojC3cLlQuZC4kLbQtPCzELCgvUCpcKXgorCvUJtglzCTcJBQnXCKYIbAgsCOkHqgd2B04HKQf+BskGkwZiBjkGFwb7BeIFxgWgBW8FOQUBBcoElQRqBE0EOwQnBAUEYQKsAgADXQPBAyQEhwTrBFMFsQX6BTAGaAa2BhQHZweeB8cH/AdHCJsI4ggaCUwJhQnHCRIKZgq9CgkLPwteC3ILhguiC8cL7wsNDBcMEgwPDBQMCQzCCzYLlwo2Cj0Kkwr4CkQLgQvLCywMlQztDC8NYw2TDcMN8g0fDkgObA6MDqYOuw7KDtgO7A4HDyoPWg+hD/wPWBCUEKYQoRCbEIkQRBC3D/IOEQ4GDaML5QkxCCoHNgcqCG4JcwoKC1ELcQt5C2kLSQsqCwwL4wqqCmoKMgoECtQJmwlfCSQJ6gitCG0ILAjvB7UHfgdQBykHBAfYBqYGdQZIBiEG/AXaBbwFoAWBBVgFJwXxBLgEhARcBEMEMwQcBPgDQAKVAvACUAOwAw8EbATLBC0FiwXXBRIGSwaTBucGNQdvB54H1AccCHAIwAgFCUEJewm5Cf8JTwqiCu0KJwtRC3ALiguhC78L6gsZDDoMQAw0DCgMFwzhC24L1gpbCjQKZwrFCh0LYwukC/MLTgypDPkMPw1+DbgN7A0bDkUOag6JDp8OrQ67DtAO7g4NDysPUw+UD/EPTxCNEKYQqxCoEIcQJxCCD7kO3A3GDD0LVwmgB8kGHAc/CIMJaQrhCh4LRwtdC1QLNAsPC+sKvgqFCkwKGwrxCcMJjQlSCRYJ0wiICD4I/wfMB54Hbwc+Bw8H4wa7BpYGcwZQBiYG8wW+BZIFcAVUBTYFEgXmBLMEgARUBDcEIwQNBOwDKQKDAuACQQOkAwUEYwS+BBcFagW1BfcFNwZ9BsgGDgdKB38HugcACE8InwjtCDQJdgm0CfUJPgqMCtYKFgtMC3cLlAukC7QL1gsNDEQMXgxZDEYMMAwDDKELCAtuChkKLAqNCgMLYAueC9ALCgxQDJ8M8wxGDZUN1w0KDjMOVw53DpAOnw6uDsoO7w4SDyoPRg9/D9cPNRB4EJwQsRC1EIUQAhA9D2cOjQ11DN4K7ghIB58GJQdgCJcJXQq/CvsKMQtVC1QLNQsLC90KqQpvCjoKDwrmCbQJeQk7Cf0Iuwh2CDcIBgjhB7kHggc/B/oGxAahBpAGhQZuBj0G9gWrBW4FRAUoBRAF9wTXBK4EfARLBCQEDAT3A9wDGwJ2AtUCNgOYA/sDWwSzBAIFSQWPBdYFIgZtBrQG9AYvB2wHrQfyBzsIhgjVCCQJbAmsCeoJLgp3CsEKBQtDC3cLmQulC6gLuwvsCywMWwxpDGIMUgwsDM4LLgt4Cv0J+wlnCv4KeAu8C9oL9QseDFkMoQz1DEwNmw3YDQQOLQ5WDnkOkA6jDr8O5g4IDxwPNA9oD78PHBBiEI4QrBCyEHUQ2g/9DhwOPg0fDH8KkggGB4sGNQd6CKEJUwqtCu4KLgtWC1cLOwsVC+cKrQptCjQKBwrdCagJZwkjCeQIrAh8CFUINggXCOcHoAdHB+8GqwaJBoUGiwZ9BkcG8gWXBVEFJAUIBfEE3ATFBKYEegRHBBkE+gPiA8gDDgJuAtECMQONA+YDPgSRBNsEHgVkBbEFBgZYBqAG3gYaB1wHowfqBy4IdQjBCBAJWwmdCdoJGgpgCqcK7AotC2gLlAunC6gLsAvTCw4MSAxrDHcMdAxWDP0LWguTCgEK7QlbCgcLnQv2Cx4MNAxJDGAMfQyuDPUMRQ2KDb8N8Q0nDloOfA6TDq0O0A7yDggPIg9aD7QPExBZEIQQoBCfEFcQsg/RDu0NAw3MCxUKJQi2BmYGMgd/CJ4JSQqmCu0KKgtKC0ULLwsVC/MKuwpzCjEKAgraCacJYwkYCdYIpgiFCG4IVQguCPAHnwdCB+kGoQZ4Bm8GcwZjBisG0wV6BTgFEQX2BN8EyQS1BJwEeARJBBgE8APPA64D+wFjAs4CLwOBA8kDEQReBKoE9QRBBZUF7QVBBooGxwYFB0oHlQfeByMIZwivCPsIRAmHCcQJBApHCosKzgoRC1QLjQuwC70LxAvbCwoMQQxsDIYMjwx+DDQMnwvcCj4KFQpzCh8LyQtBDIgMsAy/DLMMmwyVDLYM9Aw1DWwNog3iDSEOUA5vDowOsQ7WDvQOFg9UD7IPExBaEIMQmBCNED4QnQ/KDu0N8wyWC7gJvAdiBjoGJgd+CJwJSAqpCvAKIwsyCyMLDwsDC+0KugpxCiwK/AnZCakJYgkPCccIlwh9CGcIQggGCLkHbAckB+AGogZxBlUGRgYsBvMFowVYBSQFCAXxBNcEuwSjBIoEaQQ9BA4E4QO4A44D5AFOAsACJANxA64D6wM0BIYE3AQyBYkF3wUwBngGtwb4Bj4HiAfSBxgIXAihCOcILAluCbAJ8gk0CnUKtwr8CkULigu9C9kL6Av8CyEMTgx1DI8MnwydDG4M+wtSC7gKfAq/ClsLCAySDO8MJQ00DRkN4QyyDKoMxgzuDBYNRA2DDcoNBw40DlwOiQ61DtwOBw9KD6gPCRBUEIMQnRCTEEgQtA/zDh0OEw2PC4gJegctBiAGIAeACJ4JSwqvCvYKHwsiCwoL9ArqCtcKpwphCiEK9gnTCZ8JUAn2CKsIgAhtCFQIHQjIB2sHIgfzBs0GoAZsBj4GGgbzBb0FegVABRoFBAXuBM8EqwSJBGcEQgQYBO0DwgOWA2kDzwE1AqQCCgNZA5cD1AMeBHUE0gQtBYUF2AUmBm0GsAb0BjsHhAfOBxgIXgihCOEIHwlhCaUJ6QkqCmgKpwruCjsLhgvCC+kLAwwbDDwMYQx/DJMMowyuDJ0MVQzUC04LDgs+C8gLZwzkDDINXQ1tDV0NLg33DNEMxAzIDNcM9wwxDXkNvw34DSsOXA6KDrMO5Q4tD4sP6w88EHwQrRC4EH0Q9Q89D2QOQw2bC3QJWQcTBhMGGwd6CJgJRwqtCvIKGQsaCwEL6ArWCrsKiQpLChUK7gnGCYgJMAnUCJAIcQhoCFAIDwinBzsH7QbHBrEGkAZfBikG+gXOBZwFZwU4BRcF/ATeBLcEjARhBDcEDATiA7wDlQNqAz0DxgEkAokC6gI8A4EDxgMUBGsExwQjBXwF0QUeBmYGqwbxBjoHhAfTByQIcwi6CPcIMAluCbEJ8gkqCl4KlgraCicLdAu1C+ULCQwqDE0MbwyJDJkMpgy2DLgMkgw5DNELngvMC0kM0gwuDVQNYg1yDX0Ncg1IDRIN5QzQDNQM8AwgDV0Nmw3WDQoONg5YDnoOrg79Dl8PvQ8SEGUQtBDfELwQQBCDD5UOUQ2FC0cJKwfxBfwFBwdmCIMJNAqaCtoK/goCC/IK3ArECqAKbAo0CgUK3wmxCWsJEgm7CH8IZQhdCEUIAgiYByYH0wapBpIGcwZEBg8G4AW3BY4FYQU2BQ8F5wS5BIgEWAQrBP8D0wOrA4kDZAM4AwcDywEhAnsC0QIgA2sDuAMKBGAEuQQVBXIFywUaBmAGowboBjEHfwfVBzIIkAjiCCQJXQmWCdMJCQo0ClgKgwq/CggLUwuXC9AL/wsoDE8McwyRDKQMsgy/DMMMqQxoDBwM/QszDKwMJw1oDXANag1+DaMNsQ2QDU8NGg0NDSQNRw1jDXgNlA2+De8NFQ4qDkAOdA7LDjIPjw/gDzgQnBDkENwQbBClD5UOIg0sC98I0AaxBdQF6wZMCGsJGgp5Cq8KywrRCssKvwqrCocKVAodCu0JwgmPCUwJ+wiqCGoIPwgiCP0HvgdjBwQHvAaSBncGVQYlBvIFyAWkBYEFWQUsBfsExASIBE4EGgTtA8MDnAN5A1gDMwMBA8oC1AEnAngCxAINA1cDqAP/A1cEsAQNBW0FyQUZBl0GnAbeBigHeQfUBzsIpAgCCUwJhwm+CfQJIQpBClkKegqrCuoKLwtxC68L5wsXDEEMaAyNDKwMwAzKDMYMqQxyDDYMIwxcDNIMSg2PDZ0Nog3CDe8N+g3NDYUNXw17Db0N6Q3cDakNhg2UDcYN9Q0MDh0OTw6pDhIPaQ+uD/0PYhC5EMYQZBCWD2IOuAyTCjgIQwZVBaQF0wY4CFIJ/AlTCn8KlAqZCpcKkwqHCmoKPAoGCtAJmwljCSQJ3giTCEYI/ge/B4YHSgcIB8kGmwZ/BmYGQQYOBtsFsgWSBW8FRAUSBdkEmwRZBBgE3wOwA4kDZgNHAycD/gLJAo8C1wEnAnYCvgIBA0kDnAP3A1IErAQHBWcFxAUWBlwGnQbiBi4HfwfaBz8IqQgHCVMJjgnDCfcJIwpFCmEKgwqvCuIKFwtOC4oLxgv5CyQMTAx2DJ8MvQzJDMIMpQx0DEEMLgxcDMUMPg2ZDc0N9g0pDlMOSw4KDsENug0KDngOqA5rDuoNgA1tDaIN5A0IDh0OSg6fDgIPUQ+ID8gPHhBuEH0QIBBGD+wNCwy6CVsHkAXnBHMFvwYlCDEJ0AkoCloKdQp6CnMKZwpYCkEKHArrCbIJcwk0CfcIugh2CCQIzAd6BzQH+QbGBpwGggZyBl4GOQYEBtAFpQWBBVgFJQXrBK8EcQQxBO8DsgN/A1cDNgMZA/YCygKUAl0C1AEkAnYCwQIEA0cDlwPyA04EpwT/BFoFtQUMBloGpQbyBkIHlAfnB0EInAjwCDUJbQmgCdUJCQo4CmUKkwrCCu0KEQs6C20LpwvcCwQMJwxNDHgMnQyzDLYMpgyFDF0MRgxdDKoMFg1/DdUNIA5lDo8OgA48DgEOFQ6JDhYPTw8AD1gOww2PDbkN/Q0oDjsOXw6mDv8OSA96D6sP5w8VEAUQjA+TDhANBAueCFYG0AR9BEwFswYQCAcJnQn+CUcKdgqACmoKRwomCgkK7AnECY8JTQkHCcgIkAhXCBMIxwd8BzkH/QbGBpkGfAZtBloGNQYBBssFnQVyBT8FAgXABIIESAQMBM0DjwNbAzMDFQP1As4CnQJoAjYC1QEpAoMC1QIZA1gDnwPzA0wEowT3BE0FpgUABlYGqwYAB1IHoAfqBzMIfgjDCAAJNglsCaYJ4gkeClkKlgrMCvYKFAszC18LlgvJC+4LBwwjDEYMbAyLDJ8MpwyhDIwMdgx4DKMM8AxKDaEN9A0/DnAOcA5FDiEOQw6+DlQPpQ94D+wOWw4UDh4OSA5kDm0Ogg63DgMPSw9/D6UPvA+uD1oPow54DdALtgllB10FMgQ3BEAFtgYDCOQIcQndCT8KgwqSCm0KMAr2CcwJrwmPCWAJIQnaCJkIZAg2CAcI1AeeB2QHJAfhBqYGfQZmBlAGLQb7BcMFjwVbBSAF2wSWBFgEIATnA6oDbgM9AxsD/wLeArECfQJJAhwC3AE2ApUC7QI0A28DrQP3A0sEnwTyBEcFnwX5BVIGqgb/Bk8HlgfWBxIITQiJCMQIAAlACYIJxQkGCkYKhwrDCvEKEwsyC1wLjgu9C94L8QsEDB4MPgxgDIAMnQyxDLYMsQywDMQM8AwpDWQNoA3dDREOKA4fDhMOMw6WDiAPig+cD1YP8Q6pDpYOog6sDqsOsQ7RDg0PTw+DD5oPhQ8yD44Okg05DIQKgwhxBsAE7QMwBFAFwAb6B8sIUAm+CSQKbgp+ClUKDQrICZUJcwlSCScJ7giuCHEIPggUCO8HyQeeB2kHKAfgBqEGdQZaBkEGHQbqBbAFdgU5BfcEsQRuBDME/APEA4gDUAMlAwcD7ALIApkCZQI3AhEC3wE1ApIC6wI4A3cDswP3A0UElwTqBEAFlwXwBUcGnQbwBjwHfwe3B+kHHAhUCJMI2AgjCW8Jtwn6CToKeQq2CugKEAsyC1cLgQuoC8YL2wvuCwQMHww8DFwMgQynDMYM3AzuDAUNJQ1GDWUNgg2mDc8N8A3+Df8NEA5MDrIOGQ9TD0kPFA/hDtEO4A71DvwO+g4DDyMPUg93D3UPNg+sDtQNtQxUC7YJ6gcjBrsEFARbBGAFrwbXB6QIJwmJCd0JFgojCgMKywmRCWMJPAkXCe0IvgiNCFwILAgACNYHqwd7B0MHAwfEBo8GagZOBjEGBwbRBZQFVAURBcsEhgRHBBEE3QOnA28DPQMVA/YC1gKvAoECVAIuAhAC0gEWAmUCvQIUA2QDqgPuAzYEhATVBCoFfwXWBSwGggbVBiMHZweeB84H/Qc0CHUIvwgOCV0JqgnzCTkKfAq6Cu0KFQs1C1ILbguJC6MLvAvWC/ELCQwgDDsMXQyHDLUM4wwQDT0NaQ2NDaYNuA3LDeMN/A0MDhAOEg4pDl0Onw7NDtMOug6pDsIOAQ9FD2sPaw9dD1gPYg9iDzoP1g41DlsNUQwYC64JHwiPBkUFkASdBFkFcwaIB1wI5Qg7CXUJlwmgCZEJdQlUCTEJCwniCLoIlwh4CFcILwgBCM8HmwdjByUH5gauBoQGZQZFBh0G6gWwBXQFNAXuBKYEYgQnBPUDxQOUA2QDNgMOA+gCwAKVAmsCRwIrAhICtwHjAR4CcwLaAj8DlwPgAyMEagS2BAYFWQWsBQEGWAavBgIHSweJB78H8gcrCGoIsAj4CEIJkAnkCToKigrMCv8KIws/C1QLZQtyC4ILlwuyC88L6gsDDB4MPgxlDJMMyAwEDUMNgA20DdsN9Q0HDhYOJQ4xDjYOMw4zDj4OTw5ZDlEORg5ZDqUOIQ+eD+sP+A/dD7kPlQ9hDwYPgg7hDS4NYQxsC0AK4ghwByMGPQX1BFMFKAYkB/4HlAjrCBsJNQlCCUIJOQkmCQoJ4wi4CJIIeAhmCFAIMAgFCNUHoQdoBycH5QasBoIGXgY1BgEGxgWLBVMFFwXUBI0ESgQRBOIDtgOLA2EDNwMMA94CrgKAAlsCPgImAg4CngG3AeYBOQKqAh8DggPOAxAEUwScBOcENAWEBdcFLQaDBtcGJQdsB6sH5wcjCGMIpAjiCCMJbwnKCS4KiwrUCgYLKgtKC2MLcgt0C3ELcQt9C5MLsgvXC/4LIwxGDGoMlwzPDBANUg2NDb4N4g37DQwOGg4pDjUOOg41DiwOJA4dDhgOIA5PDrkOUA/nD00QcBBeEDIQ7g+ID/sOWg7DDT8NtQz+CwILxgloCBcHCgZ2BXcF/AXLBpwHPAimCOcIEwkuCTYJLgkXCfUIzAigCHoIYQhRCD8IJAgACNYHqgd0BzMH7AasBnkGTQYdBuIFpAVqBTMF+gS6BHgEOwQIBN0DswOKA2EDNwMIA9ICnQJuAkwCMgIdAgUClQGuAd0BMQKgAhIDcgO+AwIESASQBNcEHgVpBbkFDAZdBq0G+wZGB4wHzQcNCFAIkwjRCA4JVAmtCRMKcwq8Cu8KGgtHC3MLjQuKC28LTws7C0ALXguQC8kL+wseDDkMWQyIDMYMBQ07DWUNgw2ZDawNwA3aDfQNBQ4FDv0N/Q0MDiwOWg6eDgIPhA8IEG4QpRCvEJMQShDKDyAPcw7tDZANMw2fDLkLjgpDCf8H5gYgBs4F+gWEBjMH1wdaCL4ICAk2CUEJMAkPCeoIxAieCHkIXAhGCDEIFwj2B9EHqAd1BzQH6wamBm0GPAYIBs0FjQVRBRkF3wShBGYEMgQIBOIDugOPA2MDNAP/AsUCjAJcAjoCIQIMAvUBnQHKAQkCXwLDAiMDdAO7AwIETASUBNQEEwVYBaYF9gVEBpAG3AYoB24HrgftBzMIfwjGCAUJRgmUCfAJSQqPCsIK8woxC3MLnQucC3ALMgv+CusKAAs2C3kLtAvaC/ELDQw+DIEMxgz7DBoNJw0sDTUNSw1vDZYNsQ23DbYNyg0DDloOtw4LD1oPrw8JEF0QnBC9ELgQfRAGEGUPyw5hDiUO4g1YDXAMQwsDCs8IuAfPBjMGAgY8BsEGYQf6B30I3wgYCSMJDgnuCNMIvginCIkIaQhNCDQIGQj2B84HoAdsBywH5wajBmkGNAb+BcEFgQVDBQgFzQSSBFwEMAQOBOwDwwOVA2IDLgP1ArgCfgJNAikCDgL4AeIBrwH7AVACqgIAA0kDiQPLAxUEYgSlBNsEDgVMBZgF6AU0Bn4GygYXB1wHlwfSBxkIawi8CAAJPAl+Cc0JHwpiCpUKyQoNC1oLkAuVC2ULGQvUCq8KtQrgCh4LVwt+C5cLuAvyC0UMmgzcDPwM/wzzDOoM9gwZDUcNaA1yDXUNlw3tDWsO6g5LD48PyQ8KEE8QiBCrEK0QhhAvELgPSg8ID+sOuQ4yDkANBwzBCo8JcwhpB4wGBwb3BVAG6AaPByIIkAjOCOAI0wjACLcItgivCJoIfAhcCD8IIAj3B8YHkAdZBx4H4AaiBmcGLQbzBbUFeAU9BQQFywSSBF8ENgQUBPEDxgOUA18DJwPsAq8CdQJEAiACBALrAdEBvAEiAogC4gIqA2QDmwPdAysEegS6BOkEFQVNBZQF4AUoBm8GuwYKB1IHjQfFBwgIWwivCPMIKgllCa8J/wlDCnYKpwrnCjILawt1C0sLAgu8CpEKiwqnCtYKBwssC0kLbwuwCwsMbgy/DOwM8wzhDM0MywzmDBMNNw1EDUsNbg3GDUkOzA4yD3sPvg8JEFIQhhCdEJwQhxBaEBgQ1w+zD6oPiA8NDyAO4QyRC1cKLQkHCPIGJAbOBfcFewYhB7wHNgiGCKwIswivCK4IswiyCKIIhghlCEMIHAjrB7IHdwc/BwgH0AaUBlYGGQbfBacFcAU8BQgF0QSaBGcEPAQWBO8DwgOPA1gDIAPlAqkCcQJDAiECBQLoAcUBvgEtApIC5AIiA1cDkAPWAykEewTABPUEJQVcBZ4F4gUiBmQGrgb/BkoHiAe+B/wHSAiWCNkIDwlJCZIJ4wkpCl4KjgrKChALRgtSCy0L7AqtCoUKfQqRCrUK3goCCyMLTQuNC+QLQwyUDMcM1wzLDLgMsQzFDO0MEw0mDTINUw2eDQsOeA7QDh0PdQ/cDzsQdRCIEIwQkhCUEIAQWxA+EDUQIBDAD+8Oww14DD0LDwrYCJwHjAbnBcgFGwarBkoH2wdRCJ4IwAjCCLoIswisCJ8IhQhiCDsIDgjZB50HYQcqB/QGuwZ8BjoG/gXKBZwFbwU+BQgF0ASZBGYEOgQRBOgDugOHA1EDGgPhAqgCcwJHAiYCCALmAbwBuQEfAnYCvAL3Ai8DbQO2AwkEXwSuBPIELgVqBaoF6QUmBmMGqgb4BkQHgge1B+oHKghyCLYI8ggvCXUJwQkGCkAKegq9CgULOAs+CxYL1QqbCn0KfAqSCrUK2gr/CiQLUwuSC98LLAxqDJEMnwybDJEMkAyjDMkM8AwKDR8NRA2HDd4NLg5qDqUO+g5rD9YPGxA7EFYQhBC3EMwQuBCWEIQQdxA5EJcPlA5lDT0MHwvuCZ8IVwdcBtwF2wU4BssGdAcTCIoIxgjMCLgIpgicCJIIfQhZCC4I/wfNB5YHXgcnB+8GsAZqBiUG6gW9BZYFbAU4Bf0EwQSKBFsEMgQKBN8DsQN+A0oDFgPhAqwCegJOAigCBQLdAa4BrAEFAlIClQLVAhYDWAOcA+cDOQSOBN4EJAVlBaYF5wUoBmcGqwb0BjoHdQejB88HBghKCJMI2QgZCVgJmAnZCR0Kagq+CgwLOAsyC/4KuQqECnAKewqbCsAK5QoHCy4LYQuiC+cLIwxKDFwMYQxfDFwMYgx3DJoMwgziDAINMg1+DdYNHA5DDl0OjA7cDjQPdw+jD9kPLRCNEMoQzxCzEKIQohCEEBEQPw85DjMNNAwdC9UJcQgxB1IG7QX8BWUGCQe7B0sImQinCJcIiQiJCIYIcQhKCBwI8AfGB5gHZActB/IGsAZnBh0G3gWuBYUFVwUfBeIEqQR5BFEEKwQCBNYDpgN0A0EDEAPhArMChAJXAisC/gHPAZ4BkwHnATYCgwLQAhsDXQOZA9YDHwRyBMUEDgVPBZEF1wUeBmEGogbkBiYHYAeNB7YH6AcsCHsIxwgHCTwJcQmyCQMKYQq+CgYLIQsKC88KjwplCl8KeAqfCsgK6goHCycLVQuRC9ELAwwhDCwMLwwuDC0MMAw/DFwMggymDM4MCg1nDdYNMQ5cDl8OXQ50DqAOzg77DjoPnQ8SEG8QlxCbEJ8QsBCpEFsQtQ/bDvkNGw0lDPgKnQlECCUHagYgBkIGuwZcB+8HSQhpCG4IdgiFCIYIawg6CAcI4Ae+B5YHYwcqB+8GsQZqBh4G1QWXBWMFLwX4BMIElARwBE4EKAT9A84DnQNtAzwDDQPiArkCjgJgAi8C/AHKAZgBawHDARwCdgLOAiADYwOaA9ADEgRiBLME+wQ7BXwFxAUOBlEGjQbJBgoHSQd+B6wH3gchCHEIvQj5CCcJWQmgCfwJXgqvCtoK1wqwCn0KVApEClAKcgqdCscK6AoACxQLMAtZC4kLuAvdC/oLEAwcDBoMEAwMDBwMPgxkDI4MywwvDbMNLg5zDngOWQ5EDksOaA6PDsYOGQ+DD+sPNhBjEIYQpRCrEHYQ+Q9KD4sOxA3lDNULmApMCRoIJgeLBl0GmAYXB6IHCQhCCGIIfwiXCJYIcAg1CAAI3Qe/B5cHXgchB+kGsgZyBiYG0wWHBUcFDwXdBLIEjwRxBFEEKQT8A84DogN1A0YDFQPoAr4ClAJmAjQCAgLQAaEBRAGiAQACXQK5Ag4DVQORA8oDDgRdBK0E9AQzBXMFuwUDBkMGfAa2BvkGQAd+B7MH6QcrCHcIvAjyCB0JUgmhCQEKWAqKCosKaAo8Ch8KGQooCkQKZwqQCrwK4gr6CgQLCQsVCy8LWAuNC8gL/wsiDCMMCgzxC/ALDQw2DF4MkAzkDGQN7A1KDmAOQg4iDiIOQg5uDpoO0Q4eD34P3Q8rEGQQiBCQEG0QGRCbD/8ORQ5pDWYMQwsUCugI2AcCB40GjQbtBnUH7gc+CHAIlgitCKgIgAhGCBUI9AfXB6kHagcpB/IGwQaHBjsG5QWTBU0FFAXkBLwEmwR8BFkELwQEBN0DuAORA2EDLAP3AscCmgJrAjoCCQLcAbEBLQGNAeoBQwKeAvgCSwOTA9QDGQRmBLIE9gQyBXAFtAX7BT0Gega5Bv4GRgeIB8IH/gdBCIcIxAjxCBkJUgmjCf4JQApQCjEK/wncCdoJ8wkVCjMKTgpxCqAK0ArvCvYK7AriCusKDQtLC5sL6wsjDCwMDQzkC9cL8AsdDEUMagykDAgNgg3kDQkO+w3nDfYNKQ5jDo4OsQ7lDjcPng/+D0IQYxBmEFMQJxDcD2QPtQ7RDccMrwuUCncJXAhfB7QGhAbMBlcH4gdECH4IoAizCLAIkghlCDsIGwj4B8YHhgdGBxEH4QaoBl0GCQa4BXQFPAUKBd0EtQSQBGoEQgQbBPgD2QOzA4IDSQMPA9oCqAJ2AkMCEwLoAcABHgF/AdkBMwKUAvwCXwOzA/cDNwR6BL8E/QQzBWgFpQXrBTUGfgbFBgkHTAeLB8gHCwhUCJkIzgjzCBgJTgmYCeIJCwoFCtsJsAmiCbgJ4AkBChIKHwo6CmsKowrMCtYKywq9CsMK5AogC3ALwwsBDBMM+wvTC8AL1QsEDDAMUAx4DL8MHg10DZ4NoA2fDb0N/g1DDnMOjw61Dv4OZg/PDxkQOhA+EDcQKhAIELIPEQ8oDhQN+AvlCtIJtAigB80GdQakBi4HyQc9CH0InQiuCLIIowiECF0INwgNCNsHoQdpBzcHBgfLBoEGMQboBakFcgU9BQoF2wSxBIkEYwQ9BBoE9wPNA5sDYQMnA/ICvwKLAlYCJAL4Ac8BAgFhAb0BIQKTAg8DgAPYAxkEUASNBM8ECwU7BWUFlgXXBSYGeAbFBgYHQQd7B70HCghaCKEI0wj1CBgJSAmECbYJxgmwCYkJcgl+CaYJ0AnmCeYJ4wn0CSIKWwqHCpcKkwqRCqIKyQoCC0QLiAvAC9wL1gu9C68LvwvoCxUMNwxZDIwM0wwbDUkNWg1nDY0Nzg0UDkUOYw6FDsQOJA+MD98PDRAeECIQJRAYENsPTw9tDlINKQwMC/gJ3Ai/B9MGWAZsBvAGmQciCHMImQisCLYIsQiZCHIIRQgXCOkHuQeJB1kHJQfpBqMGXAYaBuEFqwV0BT0FCQXcBLMEjARjBDoEDwTgA6sDcwM8AwgD1gKiAm0COgINAuUB2QAyAZEBAAKBAggDfgPWAxMESwSOBNkEHgVQBXMFmQXQBRsGbAa1BvAGIwdcB6QH+gdTCJ0I0gj4CB8JTgl7CZIJhglgCTwJNQlVCYoJtwnICb8Jsgm5CdwJDQo1CkgKTgpaCnoKrArmCh8LVguIC64Lvwu+C7wLyQvoCwwMKQxDDGYMmwzXDAgNKA1CDWsNpw3qDSEORQ5lDpQO3Q45D5UP2w8EEBUQHBAWEOsPdw+lDoQNQgwIC+QJyAixB78GLwYrBqMGVgf3B10IjgilCLIIswihCH4IUwgqCAMI2AeoB3QHPAcDB8cGigZQBhsG5gWwBXcFPwUMBd4EsgSGBFgEJwTyA7sDggNMAxgD5gK0AoECUQIlAv0BwwASAWwB2QFXAtoCSwOiA+UDJwR4BNIEJAVeBYUFpwXYBRkGYAafBtMGAgc7B4gH5QdDCJIIzgj/CC4JXAl8CX0JWgklCf0I+gghCV4JkwmuCasJngmbCa4J0QnzCQkKGAouClUKjwrPCgwLQwt1C6ELwgvXC+UL9wsPDCYMNgw/DE8MbwyeDM8M+AwbDUMNew2/DQIONQ5WDnIOng7nDkgPqA/tDw8QGRAWEPoPnw/dDrINSwzmCqgJjgiIB6IGCwbzBV0GDwe9BzMIbwiKCJsIowibCIMIZAhFCCUI+wfFB4gHTQcZB+gGtwaDBlAGHQboBbAFdAU6BQUF1QSnBHYEQQQHBMwDkgNaAyYD9ALFApUCaAI8AhQC1gAcAWcBvwEoApcCAQNcA6sD+wNUBLIEBgVIBXgFowXWBRIGUQaKBroG6gYmB3QH0gc0CIsI0QgKCToJYgl2CWoJPwkFCdoI0gjxCCoJZAmNCZ0JmgmVCZoJsAnNCekJ/wkWCjwKdQq9CgcLSQt+C6cLyAvlCwIMIAw8DE4MUQxLDEkMVwx4DKIMygzqDA0NPg2DDdINFQ4/DlIOaw6lDggPeg/XDwkQGhAeEBEQyQ8PD9UNSwzBCnEJXghtB5cG/gXUBSkGzwZ9B/oHPghhCHoIjAiOCH8IaAhQCDUIDAjSB5EHVwcpBwIH2AanBnQGQwYRBtsFnwViBSoF+QTIBJQEWAQZBNsDoQNsAzoDDAPfArECgwJVAioCAAE+AXUBsgH9AVkCvQIhA34D1gMqBHwEyAQKBUYFfwW7BfoFOQZ1Bq0G5QYkB3EHzQcxCJAI3wgYCT8JVwldCU8JLQkBCdsIzAjYCPsILAlaCXsJiQmLCY0Jmwm3CdcJ8wkJCicKWQqjCvkKSAuBC6MLuQvRC/MLHQxEDFoMXQxTDEoMTwxmDIgMqAzBDNkM/gw8DYsN1w0MDigOQg58DuAOWA+9D/kPFBAjECIQ3w8hD9cNOgyjClQJUAhwB58G+wW8BfoFkgY9B8AHDQg8CGAIfAiECHUIWghACCYIAgjOB5MHXgc3BxQH7Qa8BokGWAYpBvcFvgWDBU0FHAXpBK0EagQmBOgDswODA1cDLAMBA9MCowJxAkMCGAFQAXgBoQHaASsCjwL5Al4DtgMBBEYEiQTNBBEFVQWXBdkFHQZkBq4G9QY6B4UH3Ac/CKMI9wguCUgJUAlOCUUJNAkbCQEJ6wjgCOUI/AgeCUMJXwluCXYJgwmdCb8J3gn0CQoKMQp1Cs8KJwtnC4gLmAuqC8sL+QslDEEMSgxEDD4MQwxWDHIMjgykDLcM0gwADUENiA3EDfENIA5nDs0OPw+eD9kP+w8UEBQQyA/6DqQNBwyACkkJWAh8B58G4wWKBbUFSAb3BoQH3wcZCEgIawh0CGIIQQgjCAoI7QfFB5QHaAdEByQH/gbPBpwGawY7BggG0gWcBWgFNwUABb8EegQ3BP4DzgOiA3YDSQMcA+4CvgKMAl0CDwFAAWUBjAHFARcCfALnAkgDnAPkAycEbAS2BAEFRwWHBcUFCgZeBrkGEQdeB6YH9gdWCL4IFwlTCW4JdAl0CXEJaQlZCUEJJQkKCfYI7wj5CBEJLQlFCVQJZAl9CZ4JvgnWCegJBAo6CokK3wonC1MLbAuCC6ILywv0Cw8MGwwbDBoMHwwvDEkMaAyEDJwMtAzTDAANNw1yDbAN+Q1UDr4OJA9yD6MPxQ/fD9gPew+aDj8NsgtLCjQJVQh1B4MGqwU4BVQF5AWbBjYHnQfhBxUIPAhKCD0IIQgFCPEH2we8B5UHbgdNBy8HDQfiBrIGgAZOBhkG4wWtBXkFRQULBcsEjARTBCIE9QPFA5IDXgMuAwAD0gKkAngC+gAlAU4BgQHIASMChwLnAj4DjAPVAyEEcATCBBAFUwWMBcMFBgZdBsMGJgd5B8AHCwhpCNQIOgmHCbMJyQnSCdMJxwmvCY0JaQlGCSYJCgn6CPoICgkhCTUJSQlgCX8Jnwm5CcsJ3gkACjgKfwrFCvwKJgtIC2sLkAuwC8gL1AvZC9wL4gvyCw0MMAxVDHQMjAyjDMAM6AwdDWQNvg0qDpkO9Q4xD1IPaA94D2QP9Q4IDrEMOQvwCfQIIghDB0cGXwXZBOQEagUiBsgGPQeKB8MH7QcDCAQI9gfmB9cHxgetB4wHawdNBzIHEwftBsEGkAZeBikG9QXABYoFUQUVBdoEpAR2BEsEHATmA60DdgNEAxcD7ALBApYC8wAZAUYBhQHZATkClQLnAi8DdgPDAxUEawTBBBIFWQWUBcsFDAZiBsgGLQeBB8cHEAhtCN8IUwmyCfQJHQoyCjYKJwoGCtsJsQmKCWIJNwkQCfkI+AgICR8JNglMCWYJhAmgCbQJwwnWCfYJJApaCpAKwQrsChILMwtQC2gLewuJC5QLogu4C9YL+QscDDkMUQxoDIMMpQzTDBYNcw3lDVcOrw7eDuwO7g7oDr4OPg5JDfYLjApTCWQIngfOBuIFBAV5BG8E3QSJBTYGvwYgB2YHlwe2B8QHxAe+B7QHpgeTB3wHZAdMBzQHFgfxBsYGmAZpBjsGDQbeBagFbAUvBfYExgSdBHEEPwQHBM8DnANtAz8DEQPkArgCAgEjAU8BjwHiAToChwLHAgIDRQOSA+YDPASUBO0ERAWSBdkFIgZ3BtkGOgeKB8sHDwhnCNgITwm2CQAKMApPCmAKYApNCiwKBArWCaAJYgklCfkI6Qj0CAwJJQk6CU8JZwmCCZsJrwnACdIJ7AkPCjcKYQqJCqwKzArqCgkLJgtAC1gLcguQC7ALzwvmC/kLEAwvDFYMfwyqDOAMMA2bDQoOYA6HDoYOcA5NDgQOag1mDA8LpwlwCIYHzgYdBlwFoQQeBP0DQwTSBH0FHAadBvwGPwdqB4QHkAeTB4wHgQd0B2gHXAdOBzoHHQf6BtAGpAZ6BlIGLAYDBtIFlwVbBSQF9QTJBJgEYgQrBPsDzwOhA20DNQMCA9cCGAE3AV0BlAHZAR4CVwKGArgC+AJEA5YD6gNFBKwEGwWIBeoFRQaiBgYHYwetB+MHFwheCL8IKQmFCcYJ9AkbCkUKawqDCoIKZgowCuIJhwkxCfII1wjcCPMIDAkgCTEJRwliCYEJnwm4CcwJ4An4CRQKMgpQCmwKiQqpCs4K9AoWCzQLUwt0C5ILqAuyC7wL1AsDDD0MdAyfDMkMCQ1kDcoNGQ46Di8OCA7HDVcNlgx0CxEKqwiAB6YGCQaBBfMEYQTpA6wDvgMZBKkESwXiBV4GuQb7BisHTAdeB2AHWgdSB04HSwdEBzcHIgcIB+YGvwaWBm8GSwYlBvcFwwWMBVoFLAX7BMQEigRUBCgE/wPNA44DTAMUA+sCIwFEAWYBkwHJAfsBIgJFAnECrwL6AkkDmwP5A2wE8AR2BfEFYQbPBjsHmwfhBwoIKQhWCJwI7gg3CW4JmAnKCQ4KXAqhCsUKuwqACh8KrAlACfAIyAjDCNMI6Qj+CBMJKwlJCW0JkAmwCcsJ4wn7CRUKLgpGClwKdQqWCr0K5AoECx8LOAtUC20Lewt/C4cLpAvcCyMMYgySDL0M+QxMDaQN5A35DeYNsw1ZDb4MyQuEChwJ1AfaBjMGwgVeBfEEeQQEBKkDfwOUA+cDZATxBHQF4gVABpAG0wYBBxoHIQciByMHIwchBxwHFgcMB/oG3Qa1BooGYQY6BhAG4wW0BYgFXQUrBfEEswR9BFAEJATsA6cDYAMmA/4CGgE/AWIBjAG7AeYBBgIlAk8CigLSAh0DbAPJAz4ExwRWBd0FXAbXBk0HtAf7ByEINghTCIMIvwj5CCoJWAmUCeUJQwqZCtAK1QqkCkUKzglaCQAJywi5CL0IzQjiCPoIFwk4CVkJeAmUCa4JygnoCQgKJQo9ClIKagqKCrAK1QrwCgQLFgssC0MLUgtZC2QLgAu0C/MLLwxmDKMM8QxKDZYNvg28DZwNXg3sDCYMAQuhCVEIUge4BmQGIQbLBVsF3gRiBPMDnANuA3UDrwMLBHQE3ARDBagFCAZYBpEGtwbPBuAG6wbvBvAG9Ab4BvYG5AbBBpcGbgZJBiQG/QXTBasFgQVPBRUF1gSdBG4EQQQLBMoDiANQAyMDAwErAVIBfwGxAd8BBAIlAk8ChgLHAg0DWAOwAx4EngQmBawFLgatBiYHjwffBxQIOgheCIcIsgjdCAgJOwl8CckJGgpiCpUKpwqPCksK5wl8CSIJ5wjNCMgIzgjbCO4IBwkjCT0JUwllCXgJkQmxCdYJ+QkVCiwKRgpnCo0KsQrKCtwK7QoDCxwLMgtDC1MLawuOC7cL5gsjDHkM5QxNDZANnw2EDVINBg1/DJcLUwr2CN8HRwcfBxwH8AaABuYFTQXMBF8E/gOsA3cDbQOIA7sD+gNFBJwE/ARcBbMFAAZCBngGngayBrwGxAbOBtMGzAa1BpUGdgZaBj0GGgbyBcgFnAVqBTAF8wS6BIkEXgQvBPoDwgONA1oD7QAZAUQBdQGsAeABCwIxAlkCigLEAgQDSwOdA/8DcgTvBHAF8AVrBt0GQwedB+4HOAh2CKIIvAjOCOkIGAlXCZkJ1AkGCjIKUwpcCjwK9QmZCUcJEgn8CPgI+Aj4CPwIBwkZCS0JPQlJCVcJawmICagJxwnhCfoJFgo6CmIKhQqgCrMKxgrfCvwKFwsuC0MLWQtwC4cLqQvnC0sMygw9DX4NgA1XDRwNyQw1DD8L/gnKCAUI1gcHCCkI6QdAB2wGuAU/Be4EoQRKBPUDtQORA4MDgQOOA68D6AM1BJIE+QRkBckFGQZQBm8GgwaUBqAGowaaBokGeAZoBlMGNQYNBuEFtAWDBUwFEgXaBKoEgARXBCsE/APKA5MD3QAQAUABdAGsAeEBDgI0AlkChAK3AvMCNwOEA90DQwS3BDYFtwUwBpwG+wZbB8MHLgiGCLUIugitCK4I0AgKCUUJdQmfCc4JBAorCigK9AmkCVwJNgkxCToJPwk6CTQJNwlFCVcJaAl1CYIJkQmkCbUJwwnQCeAJ+QkdCkQKZgqBCpYKrQrGCuAK+AoOCyULQAtXC2wLhgu7CxgMkgwFDUsNWA0+DQ8NwQwvDEgLMgpHCdwI/AhSCWgJ9ggVCCIHcQYYBu4FuwVlBfcEigQqBNcDigNJAx4DEgMqA2QDvQMxBLIELgWTBd8FGAZEBmUGeAZ9BngGcAZmBlYGOwYXBu4FwwWXBWcFMwUABdIEqQSBBFcEKgT5A8MDzAAGATwBcQGmAdgBBAIqAk0CdQKkAt0CHwNpA7kDFASABP4EgwUBBmsGxgYkB5MHCghsCJsIlAh1CGcIfwizCOoIFglCCX0JxwkDChIK6gmjCWYJTwlcCXUJhgmMCZEJngmzCcgJ1wnhCesJ9wkBCgMK+wnxCe8J+gkTCjAKTApkCnwKlwqyCsgK2AroCgALIQtBC1oLcAuUC9kLPQyoDPsMKQ00DSAN4QxgDJ4LzAo5Ch0KZgq1CqQKCgofCUUIxgehB5sHdAcUB4kG8AVZBcIEKQSWAxgDuQKAAm4CiQLVAksD2QNsBPEEZQXDBQsGOQZQBlYGVAZMBj4GJwYIBuUFwQWdBXYFSwUgBfcE0gSrBIIEVQQjBO8DrgDqACIBWAGKAbkB5gEQAjkCYwKTAssCDANTA5wD7ANOBMUESwXMBTkGkgbpBk4HvgcdCFAIVQhGCEQIYAiMCLQI0wj5CDoJkQneCf8J6AmzCYgJfAmNCagJvgnSCewJDQosCjwKPAo4CjwKSgpYClkKSAouChgKDwoSChsKKAo5ClIKcwqVCq4KvQrNCuUKCQsuC0kLVwtpC5QL3wtCDKUM9AwlDSwN/gyUDAAMdAsuC0ULkwvEC5ML+wo+CrEJgQmUCagJhgkfCYgI2QccB1AGdAWUBMMDCgNuAvcBrwGoAeYBXwL+AqsDUwToBGAFtgXrBQcGFAYYBhIGAQbnBcoFrAWQBXEFUAUtBQwF7ATKBKUEewRMBBoEgAC6APIAJwFZAYoBvAHwASICUwKFAr0C/QJBA4YDzwMmBJEEDAWHBfIFSwadBvcGWQezB/QHGgg1CFYIgAihCK4IsQjFCAEJYAm9CfcJAArtCdkJ1QnaCeAJ5gn2CRkKQwpfCl0KRAosCioKQwpkCngKdApfCkQKLQocCg0KBQoJCh0KPwplCoUKnQq1CtQK+godCzILOQtAC1wLmQvzC1sMuQz7DBEN8gyjDD0M7gvaCwEMOwxMDBIMnwsvC/oKDQtCC2ELSQv4Cn8K6gk1CVcIVQc/BikFHgQjA0ICiwEXAfQAIwGUATEC5AKXAzkEvQQgBWcFmQW6BcoFxwW3BaEFigV1BV8FRgUrBQ4F8QTSBLEEjQRnBD0EUACFAL0A9AAoAV0BlgHRAQwCQwJ3AqwC5wIoA24DtwMJBGgE0gQ+BaEF+AVMBqMG/wZXB6UH6wcxCHcIrgjECLUImgibCNIINwmlCfkJJAo1CjsKOwowChYK/Qn3CQ0KLAo5CiIK9QnRCc8J8wknClEKZQpmClwKTQo3ChwKAwr3Cf4JFgo0ClMKcQqTCrsK5QoECxQLGAsgCzoLcQvACxoMbgyrDMUMuAyMDFYMNQw6DFsMeQx1DEUMAgzUC9YL/gsuDEcMPwwcDOYLlAsUC1gKZQlMCB8H6gWxBH4DYwJ5AdYAgwCAAMcASAHuAaECSwPgA1wEwgQSBUcFYgVnBWEFWQVRBUcFOAUjBQgF6gTJBKgEiQRtBE8EKwBfAJgA0QAIAT8BeQG3AfUBLwJjApQCyQIGA0wDmQPuA0gEpQQBBVkFrwUIBmMGvgYTB2IHtQcQCGoIqQi5CJsIcghuCKkIFgmQCfEJLgpRCmcKbApZCiwK+wneCd8J7QnuCdIJpgmGCYkJrQnfCQsKLApFClgKYQpaCkQKJwoTCg0KFAogCjEKSQpsCpkKxArhCu8K9woGCycLWwuaC9wLFwxGDGIMaQxiDFcMVwxoDIAMjAyCDGQMRQw3DEAMVAxjDGoMbQx1DHwMbgwyDL0LEQs6Cj8JIwjoBpMFNQTkArYBwgAcANT/6v9PAOcAlAFAAuQCegP9A2YEsATeBPkECwUXBR0FHAURBf8E5QTGBKQEhgRtBFgEGwBPAIgAwQD2ACoBXwGZAdcBEwJJAnsCrALkAicDdgPPAysEhATWBCUFdwXRBS8GhgbRBhYHYwe/Bx0IYAhxCFMILwgzCHkI8AhtCc0JBwopCkEKSwo9ChQK4Am6Ca4JtAm2CagJkAmCCYkJoAm8CdYJ9AkbCkgKbQp6Cm8KVwpDCjgKNQoyCjIKPApWCnwKoQq7CsgK1QrtChULRwt6C6gL0AvyCw8MJAwzDEAMUgxqDIEMjAyHDHcMZQxXDE0MQAwzDCsMMwxMDGkMegxvDEQM+guQC/4KOQo5CQAImAYOBXkD+AGyAMn/Uf9B/4H/8v+BACIB0AF+Ah4DowMJBFQEjASzBM4E3gTmBOcE3wTMBLIElgR7BGQEHwBTAIkAuwDpABQBQgF3AbMB8gEvAmYCmgLOAgsDVgOtAwoEYgSxBPoERgWaBfIFQQaBBroG/QZTB7IH+QcOCPYH2AfmBzYItQg2CZMJxQnfCfQJBAoECuoJwAmcCYsJjQmWCZkJmQmcCaUJsAm5CcQJ4AkRClEKhwqgCpoKggprCl0KVQpMCkMKQwpRCmwKhgqZCqYKtwrWCgMLNgtkC4sLrQvLC+UL9gsCDA0MIQw+DFwMbwxxDGEMSAwqDAsM7gvZC9EL2gvtCwEMDQwUDBkMHwwYDPALkwvyCgkK2AhjB7cF9QNIAt8A1v8x/+L+2f4M/3f/EgDMAI0BQALbAlwDwwMTBE8EeQSZBLIEwwTHBL8ErASSBHUEKQBdAIwAtQDaAAEBLAFfAZkB1wEXAlMCiwK/AvgCOgOKA+MDOQSHBMwEEQVcBasF8gUtBmEGogb4BlcHnge0B50HgQeRB+QHaQjvCFEJhQmfCbcJ0AndCdIJsQmLCXMJbwl2CYAJiwmWCaIJrQm4CcoJ8gk0CoIKxAriCtkKuAqUCnYKYQpQCkIKPwpIClsKbgp8CooKoArFCvUKJwtWC38LpAvCC9QL1QvNC8gL1Qv1CxwMNQw1DBsM8QvDC5wLgAtyC3ALdQt6C3oLeQuCC5wLxgvvCwQM8gutCywLZQpNCeQHQQaIBOUCdwFKAGL/wv5x/nX+xf5O//X/pQBUAf0BmwInA5oD8wM1BGcEjASjBK4ErASeBIYEKwBeAIgAqwDOAPcAJwFbAZEByAEAAjkCcgKpAuECHgNmA7cDCgRWBJoE2wQfBWgFrAXpBSMGZwa9BhgHWwduB1YHOgdKB5wHIAioCA4JSQlqCYoJrgnGCcQJpgl9CVwJTwlQCVgJYglvCYAJlQmwCdYJEQpjCr8KDgs5CzgLFAveCqUKcgpICi0KIworCjwKTwpfCnEKjQq1CuQKEwtAC2oLkguwC7oLrAuSC38LhwuoC9IL6gvhC7oLhQtUCzILHwsVCw0LAgv1CugK5ArxCg8LOgtkC4QLlAuQC24LGgt+Co4JUgjiBlwF2QNoAhoB/v8q/6n+d/6F/sH+I/+q/1YAHAHpAaYCQgO5Aw0ERgRrBIMEkgSXBJAEJABWAH4AoADGAPUALQFlAZcBwgHsARoCUAKJAsQCAQNFA5AD3wMqBG0ErATtBDMFeAW6BfkFPgaPBuEGHgcyByQHEwcpB3kH9AdyCNAIBwkpCUwJdQmVCZoJgglbCTkJKgkqCTIJPQlLCWIJggmqCd4JIgp5Ct0KOwt+C5gLhQtMC/0KpwpaCiMKCAoHChYKKQo8ClMKcgqZCsQK7goVCz0LZAt/C4ULcQtRCzsLQQthC4ULlAuBC1QLIgv9CusK4QrRCrUKkAptClgKVwpqCogKpgrACtYK8AoQCywLLQv6CoMKxgnPCK4HbQYXBbkDaQI7AT8Adv/e/nn+Uf50/uf+nv+BAG0BSAIAA4wD7wMwBFkEdQSHBJEEJQBTAHgAmgDCAPUAMAFqAZkBvAHcAQICMgJsAqoC6gItA3YDwQMKBEwEiQTGBAgFSwWNBc0FDgZXBqAG3Ab8BgQHCwcwB4AH7QdXCKEIyAjdCPgIHAk8CUgJOwkfCQcJ/ggDCQ8JHgkxCU0JdAmjCdkJGwptCs4KNAuOC8gL1AuxC2ML/QqUCj4KCArzCfUJAQoSCicKQwpoCo8KtQraCgALIws8C0ALLAsOC/oK/woaCzQLOQsfC/QKzgq7CrcKswqbCm0KMwoBCuUJ4wn1CQsKHQopCjkKVgqDCrgK4grtCswKfgoFCmMJlwihB4UGTwUOBM4CmwF+AIz/2P54/nT+x/5h/ykACgHsAboCYgPeAzAEYAR8BIsELwBZAH0AnwDGAPUAKwFfAYwBrwHQAfUBJAJcApkC2AIbA2MDrQP0AzQEbQSkBOAEHgVbBZYF0gUTBlcGmAbJBuwGDQdBB5AH7wdFCH4IlwigCK0IxAjeCO0I7AjfCNMI0QjYCOQI8wgICScJUQmFCcAJAwpRCqoKCwtoC7ML3gvcC6sLUQvjCnkKJgr1CeAJ3QniCe8JBAokCkoKcwqbCsEK4wr4CvoK6QrQCr8KwwrWCugK5wrOCqoKjAp/Cn4KdgpbCioK8Am+CaEJmAmcCaMJqAmtCboJ1Qn/CTEKYQqGCpoKmAp9CkQK6AlhCawIywfBBpUFVQQTA+YB4AARAH//Lf8h/2H/7v+4AKMBjAJRA+IDPQRtBIIEMgBcAIIAqQDQAPkAJAFPAXkBoQHJAfIBIAJSAokCxQIGA00DlwPdAxsEUgSGBLwE9QQtBWMFmQXVBRcGWwaaBs8GAQc6B4IH0wceCFMIbQh2CHwIiAiZCKgIsAixCLAIsQi0CLkIwgjSCO8IGglSCZUJ4QkyCoUK2QopC3ILrAvKC8ALiAsrC74KWgoRCuQJzQnCCcAJygniCQYKMgpdCoQKpAq3CrsKrwqdCpAKkQqeCqoKqQqWCnkKXQpICjgKIwoDCtoJsQmQCXsJbglkCVoJUwlSCVkJagmECaUJzgn7CSgKTApgCl0KQwoRCsIJTgmuCOAH6gbfBdEEyAPGAssB4AAgAKz/oP8BALgAngGFAk4D4wNDBHUEIwBQAH0ArADYAAABJAFJAXEBnAHJAfQBHQJIAnYCrALrAjEDewPCAwEEOQRsBKEE1wQNBUAFcwWqBegFLAZvBq0G5AYZB1QHlgfXBw0IMghFCE8IWAhlCHQIhAiRCJoIngigCKEIpgizCMsI8AgkCWcJtQkIClkKogrlCiYLZQuYC68LmgtZC/0KnQpNChMK6gnKCbMJqgm0CdAJ9wkfCkIKXwpzCn4KgAp6CnMKcApyCnUKcQpjCk0KMQoRCu4JxwmeCXsJYglVCU0JRQk4CSkJHgkZCRoJHQkjCTAJTAl3CacJ0QnnCewJ6AnmCeUJ2QmtCVEJxQgVCFAHeQaKBXsEUwMwAjoBmQBhAI8ADQHAAYgCSAPnA1QEDAA8AG4AowDVAAIBKQFPAXgBpAHPAfYBGQI7AmMClQLSAhcDYQOoA+gDIQRWBIsEwAT2BCkFWgWNBcUFBgZKBowGxwb6BikHWAeIB7gH4Af+BxIIIQgwCEIIVwhrCHkIgwiJCJEIngixCMkI5ggNCUAJgwnPCRsKYgqiCuEKIAtZC38LgwthCyUL3wqfCmcKMQr8CcsJqQmeCaoJxAngCfsJEwosCkUKWgplCmYKXgpRCkMKMwohCgwK8AnNCaAJbAk8CRcJBgkECQgJCgkFCf0I+Qj5CPkI8wjqCOYI8ggNCS8JRwlLCUIJPwlWCYgJxAnsCecJrAlHCccIMwiGB7YGwAWxBKIDrgLuAXEBQQFnAd0BjwJUAwAE/f8tAF4AkgDIAPoAKQFWAYIBrQHUAfQBEQIvAlQChQLBAgUDTQOTA9QDDgRDBHcEqgTfBBIFRAV0BagF5AUoBnAGtAbrBhUHNAdRB28HjwevB8wH5Af7BxEIJwg6CEgIUQhcCG0IhwioCMgI5QgBCSQJVAmSCdkJIQpjCqEK2goMCy8LPgs5CyYLCwvpCrwKfwo2Cu0JtAmXCZIJmwmoCbcJzAnpCQ4KMwpMClUKTAo3ChsK/AndCb8JoAl6CUwJGAnmCMIIsgi0CL4IxwjKCMwI0gjbCOAI3AjPCMAIuwjBCMwIzQjACK0IqgjKCBAJaQm2CdkJywmUCUoJ+AifCDMIpwf0BhsGJgUhBCMDTQLFAakB/wGnAmoD8v8lAFMAggC0AOoAHwFTAYMBrQHOAeoBBAIiAkgCeQK0AvUCOgOAA8ID/wM1BGYElwTJBPwELQVcBY0FxQUIBlUGoQbhBg4HJwc1B0IHVgdxB5EHsgfQB+sHAggRCBgIHAgjCDUIVAh8CKYIygjqCAoJMwlpCakJ7AkrCmIKjwqyCs4K5Ar5CgwLGAsSC+8KrgpZCgUKwwmcCYsJhAmCCYUJkgmsCdEJ9gkSCiIKJQoaCgQK4wm6CY0JXwkwCf4IzQihCIIIdwh7CIYIjgiRCJMImgioCLcIvQi3CKcImAiPCIoIgAhwCF4IWwh2CLEIAAlICXMJewlpCU8JOwktCRgJ6QiPCAAIOgc/BhwF7wPiAicC4gEZAqsC3f8aAEsAdwClANkAEQFJAXoBogHAAdoB9AEUAj0CbgKmAuMCJgNrA7AD8QMqBF0EjAS6BOoEGgVJBXkFrwXwBTwGiwbQBgIHHgcqBzAHOwdOB2oHiwetB8sH5Af0B/sH/Af+BwgIHghACGkIlQjBCO0IHQlSCYsJwwn2CSIKRQpjCoEKpQrRCv0KHAseC/oKtgpjChYK2wm0CZoJgwlvCWMJZAlyCYcJnQmxCcUJ3AnvCfYJ5wnACYcJRgkECcgIkwhsCFUIUAhYCGAIXwhWCE0ITQhcCHMIhgiNCIcIewhwCGkIYwhZCE4ISQhVCHYIpgjYCP0IEQkdCSwJSglxCZMJmAlyCRkJjwjUB+UGxAWDBE4DYALrAQECwP8PAEsAeQCkANMABwE8AWsBkgGwAcoB5gEIAjICYwKZAtMCEwNXA50D4gMgBFYEhwS0BOEEDgU8BW4FpwXpBTIGfQa/BvMGFAcmBy8HNwdBB1IHaQeFB6QHwQfYB+cH7gfxB/QH/gcSCDIIXQiRCMsIBAk6CWoJlAm6Cd4JBAotCl4KlgrTCgcLIgsaC+4KqwplCioK/wnbCbUJiwljCUkJPgk9CT8JQAlHCV4JiAm7CeMJ7QnRCZUJSAn4CK8IdAhMCDoIOghBCEMINAgYCP0H8wf/Bx0IPAhRCFYIUghMCEwITghOCEoIRQhFCFIIawiJCKQIuQjNCO4IIwlnCacJywnCCY8JPQnSCEEIbgdGBtsEZwNCArIBpf8IAFIAhwCvANUAAAEtAVoBgQGhAb4B3QEBAisCXAKSAssCCQNKA44D0QMSBE4EgwSyBN0EBwU1BWwFrAXzBTsGfwa5BucGCgcjBzMHOwc/B0QHTgdhB3oHlwexB8YH1QffB+UH6wf2BwsILwhiCJ4I2wgOCTUJVAlxCZYJxgkCCkgKkQrUCgMLEgv+Cs8KlwpmCkEKIgr8CckJjAlWCTAJHAkRCQYJ+wj9CBkJUAmTCcoJ3QnHCY8JRAn1CKsIbghHCDcIOAg9CDUIFQjmB7kHpAetB80H8wcNCBgIFwgUCBYIHAgiCCQIJAgnCDQISghjCHYIfgiDCJUIwggLCV4JnQm2CakJhglcCSAJqQjIB24GwwQiA/MBjf/9/1UAjwC2ANUA9QAbAUUBbgGVAbgB2wEAAikCWQKPAsoCCANHA4cDxwMHBEYEgASzBOAECgU4BXIFtwUCBkkGhQa0BtkG+QYWBysHOAc7BzwHQAdNB2IHeQeOB54Hqwe4B8QH0AfcB+0HCgg1CGsIogjQCPEICwkmCUwJggnGCRIKXQqbCsMKzQq8CpsKeQpgCk0KNQoMCs8JiQlLCR8JAwnuCNsIzgjXCP0IPAl/Ca0JtQmaCWUJJgnmCKkIdghVCEsIUAhUCEMIFQjVB5kHegd/B54HwgfbB+IH3QfXB9UH2QfgB+YH7gf8BxMIMQhOCF4IWwhNCEUIWQiTCOkIPwl8CZUJmAmVCY0JXwnTCMMHNwZyBNgCbf/i/0EAgwCtAMsA6AAKATMBYQGPAboB4gEIAi8CWwKPAsoCCgNKA4kDxQMDBEEEfgS3BOgEFQVFBX8FwwULBk0GgAalBsMG4Ab9BhYHJgctBzAHOAdKB2EHdAd/B4MHhgeOB54HsgfFB9gH7wcQCDoIZwiPCK4IxwjjCAgJOgl2CbYJ9QkqCk8KYQpiCloKUwpPCkkKNgoOCtMJkAlRCR8J9QjPCLAIowi2COoIMAltCYkJfglXCSQJ8wjHCJ4IeghlCGMIbwh2CGMILgjkB6IHfQd+B5kHuAfLB8wHwwe5B7QHtQe5B78HygfaB/EHDggqCD0IQAgzCCIIIQhBCIUI2wgsCWQJhAmZCasJqgluCcUImgcEBkkERf+1/xYAYgCXAL8A4gAHATEBYAGSAcIB7wEYAj0CYwKRAsgCCANMA40DygMDBD0EeASzBOoEHgVSBYsFywULBkUGcgaUBrAGzQbpBgAHDgcUBxkHKQdEB2MHegeBB3wHdgd5B4kHoQe5B80H4Af2BxQINghYCHUIjwiqCMsI9AgjCVUJiAm4CeIJAgoYCiYKMAo3CjcKKQoJCtkJoQlnCS4J8wi4CIcIcwiJCMYIEglMCV0JRgkXCeYIwAiiCIgIcghnCG0IfgiHCHUIQgj7B7wHmwecB7MHzAfYB9gHzwfHB8MHwgfCB8UHyAfOB9YH4QfyBwcIGggkCCIIHQgkCEUIhAjSCB0JVwmBCaUJwwnDCXwJxQiPB/UFHv+G/+f/OwCAALgA6QAVAT8BaQGWAcUB9QEhAkcCagKRAsICAANHA40DzAMDBDYEawSiBNwEFgVQBYsFxwUBBjYGYgaGBqYGxAbeBu8G9AbzBvYGBwcpB1EHcAd9B3sHdAd1B4UHnQe1B8cH1gflB/oHFAgvCEkIYAh5CJYIuAjeCAoJOwlvCaEJzAnrCQAKDAoTChUKCwr1CdIJpwl1CTwJ+QixCHQIVQhmCJ8I6QgiCTQJHAnuCMAInQiECHIIYwheCGYIdQh8CGoIPQgDCNIHvAfAB9MH5AfsB+oH5wflB+QH4gffB9wH2QfUB8wHxAfEB9IH7wcPCCMIJAgbCB4IPgh+CNEIIQlkCZsJzQnzCfAJmgnICHUH/f5f/8D/GQBqALIA8QAlAU0BbwGQAbcB5gEXAkQCawKQAr0C+AI/A4gDygMCBDAEXgSPBMYEAQU8BXYFrgXlBRcGRQZtBpEGrwbFBs8GzAbEBsQG1gb7BisHVAdtB3QHdQd5B4UHmQesB7sHyAfVB+gH/gcVCCsIPghSCGkIhgioCNIIBAk9CXUJpAnECdUJ3AnfCeAJ2wnNCbMJkQloCTgJ/gi7CH4IWAhcCIcIyQgCCRoJCwnhCLEIighvCF4IVQhUCFsIYwhhCE0IJwj9B94H1AfbB+cH7gfuB+wH7gfyB/UH8gfsB+cH5QfkB94H0QfGB8cH2wf7BxYIHggUCAkIFQhGCJQI7Qg/CYUJxQkACiMKCgqJCYQI2v48/5z/+P9PAKAA6gAlAVABbAGEAaQBzwEFAjsCagKVAsEC+AI6A4IDxgP/Ay8EWwSIBLkE7AQfBVAFgAWwBd8FDAY1BlgGdQaHBo4GiwaGBokGoAbLBgEHNQdcB3IHfQeFB44HmQekB64HuAfHB9sH8QcGCBgIJwg2CEgIXgh5CJwIyggBCTgJZwmGCZUJmgmeCaIJowmaCYcJaglKCScJ/AjICJEIZghaCHUIrQjnCAoJBgnhCK0IfAhcCE0ISghPCFUIVAhICC8IDwjxB98H3AfhB+QH4QfbB9oH4QfsB/QH8gfrB+cH7Qf6BwQIBAj5B+4H7wf+BxAIGggYCBAIFQg0CG0ItQgBCUsJlgniCR4KLQrlCSwJsP4V/3f/0v8pAH0AzgATAUcBaQGCAZ8ByAH+AToCcgKjAtICBAM9A30DvAP3AywEXgSOBLsE4wQHBScFSAVtBZQFvQXjBQQGHwYyBj4GRQZKBlgGdwanBuMGIAdTB3cHjwecB6QHqAerB64HtgfEB9cH6gf6BwcIEggeCC0IPQhPCGcIiAi1COcIFQk3CUsJVglgCWoJcglwCWEJSgkxCRYJ9gjKCJQIYQhGCFMIhAjDCPMI/AjdCKYIcAhMCEAIRQhPCFMISgg1CBcI+AffB9EHzQfMB8gHwAe7B74HzQfgB+4H8QftB+wH9gcNCCUINAg0CCkIHggcCCMILAgzCDQINghACFUIeQirCO4IQgmgCfYJJQoPCpwJiP7v/lH/q/8BAFUAqAD2ADcBaAGLAawB1AEHAkECfAKyAuMCEgNCA3YDrQPmAyAEWgSQBL4E3gT0BAMFFAUrBUoFbQWPBa8FzQXnBf8FEwYnBj8GYgaTBs4GDQdHB3YHmQevB7sHvwe+B78HxAfQB98H6wfxB/QH+AcACA4IHAgqCDkITwhwCJsIyQjwCAwJHwkvCT4JSglOCUYJNgkiCQwJ7gjBCIUISAgiCCQIUQiUCM0I4gjNCJ0IawhLCEQISwhTCE8IPQgfCP0H3wfGB7YHqwejB5wHlweYB6MHuAfQB+UH8Qf0B/YH/wcSCCoIPwhLCEwIRwhDCEYITghYCF8IXghVCEsISgheCJII5whSCbwJBwoaCucJa/7P/jH/jP/i/zYAigDcACUBYgGRAbgB3wEMAkACeAKxAucCGANFA3ADngPSAw0ESwSGBLUE0QTeBOIE6AT1BAwFKQVIBWkFiwWvBdMF9gUWBjYGWgaGBrsG8wYrB14HiQepB74HyQfOB9MH2wfoB/QH+gf1B+sH4gfiB+wH+wcJCBYIJQg+CGIIjgi4CNkI8ggFCRUJIwkqCSkJHwkRCf4I4AiyCHQINAgICAMIKAhmCKAIvAizCJIIbwhaCFYIWAhTCEAIIAj8B9sHwAepB5YHhQd5B3QHdweAB5AHpQe8B9IH5QfyB/oHAAgICBUIKAg7CEwIVwheCGMIaAhvCHUIcwhmCFAIPgg/CGEIqQgLCXQJyAn3CfYJVP60/hb/df/P/yYAegDLABYBVwGLAbUB2wEDAjECZwKiAtwCEwNDA24DmAPIA/8DOwRzBJ8EuATBBMAEwATIBNgE8AQMBSwFUQV8BakF1QX/BSYGTgZ4BqYG1gYHBzcHZAeMB6wHwwfSB98H7gcACBAIFggNCPoH5gfaB9wH5wf0B/8HCggaCDUIWQiBCKQIwAjWCOgI9wgCCQUJAQn3COYIywihCGkILwgDCPcHDwhACHEIkAiTCIUIcghnCGEIVgg+CBgI7AfGB6sHmQeKB3gHZwdcB1sHZQd2B4YHlQejB7UHyQfeB+4H9gf4B/wHBwgcCDcITwhfCGUIZghmCGoIbQhrCGAIVAhQCGEIjwjTCCAJZgmaCbcJPv6a/vz+YP/B/x0AdADEAAwBSgF+AakBzwH1ASECVQKPAswCBQM5A2cDkwPCA/UDKwRcBIEElgSdBJsEmgSfBKwEwATaBPkEHwVKBXkFqQXYBQcGNQZkBpIGvgboBhMHQAdsB5YHtwfPB+EH9AcKCB8ILQgsCB0IBwj2B+8H8gf3B/sH+wf+BwsIIwhDCGUIhQihCLoI0AjgCOcI5QjbCMkIrwiKCFsIJwj9B+sH9wcZCEMIZAh0CHQIbAhhCFAIMwgJCNUHpAeCB3EHagdkB1kHSwdDB0YHVgdqB3sHhQeLB5QHpQe8B9EH3gfjB+UH7Af9BxcIMAhBCEYIRAhDCEgIVQhjCG4Icwh1CHwIjwitCNQI/QglCUwJ"), a = new Int16Array(bin.length / 2);
+    for (let i = 0; i < a.length; i++) {
+      const v = bin.charCodeAt(2 * i) | (bin.charCodeAt(2 * i + 1) << 8);
+      a[i] = v > 32767 ? v - 65536 : v;
+    }
+    return a;
+  })();
+  function egm96(lat, lon) {
+    const y = (lat - G.lat0) / G.step, x = (lon - G.lon0) / G.step;
+    if (y < 0 || x < 0 || y >= G.nLat - 1 || x >= G.nLon - 1) return null;
+    const i = Math.floor(y), j = Math.floor(x), fy = y - i, fx = x - j;
+    const v = (r, c) => GRID[r * G.nLon + c] / 100;
+    return (v(i, j) * (1 - fx) + v(i, j + 1) * fx) * (1 - fy) +
+           (v(i + 1, j) * (1 - fx) + v(i + 1, j + 1) * fx) * fy;
+  }
+
+  async function updateGeoid(p) {
+    if (IS_IOS) return;
+    if (geoidAt && dist(geoidAt, p) < 2000) return;
+    geoidAt = p;
+    const e = egm96(p.lat, p.lon);
+    if (e != null && geoidSrc !== "国土地理院ジオイド") { geoid = e; geoidSrc = "EGM96"; }
+    try {
+      const u = `https://vldb.gsi.go.jp/sokuchi/surveycalc/geoid/calcgh/cgi/geoidcalc.pl?outputType=json&latitude=${p.lat}&longitude=${p.lon}`;
+      const j = await (await fetch(u)).json();
+      const g = parseFloat(j?.OutputData?.geoidHeight);
+      if (!isNaN(g)) { geoid = g; geoidSrc = "国土地理院ジオイド"; }
+    } catch (err) { /* 取得できなければ EGM96 のまま */ }
+  }
+  async function updateDem(p) {
+    if (demAt && dist(demAt, p) < 30) return;
+    demAt = p;
+    try {
+      const u = `https://cyberjapandata2.gsi.go.jp/general/dem/scripts/getelevation.php?lon=${p.lon}&lat=${p.lat}&outtype=JSON`;
+      const j = await (await fetch(u)).json();
+      const e = parseFloat(j.elevation);
+      dem = isNaN(e) ? null : e;
+      $("demDetail").textContent = dem == null ? "この地点のデータがありません" : `データ: ${j.hsrc}`;
+    } catch (e) { demAt = null; $("demDetail").textContent = "標高データを取得できません（通信を確認）"; }
+  }
+
+  // ---------- ハザード情報（国土地理院 ハザードマップポータル タイル） ----------
+  const HZ_BASE = "https://disaportaldata.gsi.go.jp/raster/";
+  const DEPTH = [ // 浸水深の凡例（国交省 手引きの標準色）
+    [[247,245,169], "0.5 m未満"], [[255,216,192], "0.5〜3 m"], [[255,183,183], "3〜5 m"],
+    [[255,145,145], "5〜10 m"], [[242,133,201], "10〜20 m"], [[220,122,220], "20 m以上"]];
+  const HAZ = [
+    { key: "flood",  name: "洪水（想定最大規模）", path: "01_flood_l2_shinsuishin_data", type: "depth" },
+    { key: "naisui", name: "内水氾濫",             path: "02_naisui_data",               type: "depth" },
+    { key: "tide",   name: "高潮",                 path: "03_hightide_l2_shinsuishin_data", type: "depth" },
+    { key: "tsunami",name: "津波",                 path: "04_tsunami_newlegend_data",    type: "depth" },
+    { key: "dosek",  name: "土砂（土石流）",       path: "05_dosekiryukeikaikuiki",      type: "dosha" },
+    { key: "kyuke",  name: "土砂（がけ崩れ）",     path: "05_kyukeishakeikaikuiki",      type: "dosha" }];
+  let hzAt = null, hzBusy = false;
+  const hzCanvas = document.createElement("canvas"); hzCanvas.width = hzCanvas.height = 1;
+  const hzCtx = hzCanvas.getContext("2d", { willReadFrequently: true });
+
+  function tileOf(lat, lon, z) {
+    const n = 2 ** z, r = lat * Math.PI / 180;
+    const x = (lon + 180) / 360 * n;
+    const y = (1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2 * n;
+    return { z, x: Math.floor(x), y: Math.floor(y),
+             px: Math.floor((x - Math.floor(x)) * 256), py: Math.floor((y - Math.floor(y)) * 256) };
+  }
+  async function pixelAt(path, t) {
+    const res = await fetch(`${HZ_BASE}${path}/${t.z}/${t.x}/${t.y}.png`);
+    if (res.status === 404) return null;               // タイルなし＝想定区域外
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const bmp = await createImageBitmap(await res.blob());
+    hzCtx.clearRect(0, 0, 1, 1);
+    hzCtx.drawImage(bmp, t.px, t.py, 1, 1, 0, 0, 1, 1);
+    const d = hzCtx.getImageData(0, 0, 1, 1).data;
+    return d[3] < 10 ? null : [d[0], d[1], d[2]];
+  }
+  function classify(h, rgb) {
+    if (!rgb) return { text: "想定区域外", ok: true };
+    if (h.type === "dosha") {
+      const [r, g, b] = rgb;
+      if (r > 150 && g < 110) return { text: "特別警戒区域", rgb };
+      return { text: "警戒区域", rgb };
+    }
+    let best = null, bd = 1e9;
+    for (const [c, label] of DEPTH) {
+      const d = (c[0]-rgb[0])**2 + (c[1]-rgb[1])**2 + (c[2]-rgb[2])**2;
+      if (d < bd) { bd = d; best = label; }
+    }
+    return { text: bd < 1600 ? `浸水 ${best}` : "浸水想定区域内", rgb };
+  }
+  async function updateHazard(p) {
+    if (hzBusy || (hzAt && dist(hzAt, p) < 50)) return;
+    hzBusy = true; hzAt = p;
+    $("hzLink").href = `https://disaportal.gsi.go.jp/maps/?ll=${p.lat.toFixed(6)},${p.lon.toFixed(6)}&z=16&base=pale`;
+    const t = tileOf(p.lat, p.lon, 17);
+    const rows = await Promise.all(HAZ.map(async h => {
+      try { return [h, classify(h, await pixelAt(h.path, t))]; }
+      catch (e) { return [h, { text: "取得できません", ok: true }]; }
+    }));
+    $("riskList").innerHTML = rows.map(([h, r]) =>
+      `<div class="risk"><span>${h.name}</span><span class="v${r.ok ? " ok" : ""}">` +
+      (r.rgb ? `<span class="chip" style="background:rgb(${r.rgb.join(",")})"></span>` : "") +
+      `${r.text}</span></div>`).join("");
+    hzBusy = false;
+  }
+
+  // ---------- 測位 ----------
+  function onPos(pos) {
+    const c = pos.coords;
+    last = { t: pos.timestamp, lat: c.latitude, lon: c.longitude, h: c.altitude,
+             hAcc: c.accuracy, vAcc: c.altitudeAccuracy, speed: c.speed };
+    const p = { lat: c.latitude, lon: c.longitude };
+    updateGeoid(p); updateDem(p); updateHazard(p);
+  }
+  function onErr(e) {
+    const m = { 1: "位置情報が許可されていません（Chromeのサイト設定で許可してください）",
+                2: "位置を取得できません", 3: "測位がタイムアウトしました（屋外へ）" };
+    $("msg").textContent = m[e.code] || e.message;
+    $("altDetail").textContent = m[e.code] || e.message;
+  }
+  async function start() {
+    if (!("geolocation" in navigator)) { $("msg").textContent = "このブラウザは位置情報に対応していません"; return; }
+    if (watchId != null) { stop(); return; }
+    watchId = navigator.geolocation.watchPosition(onPos, onErr,
+      { enableHighAccuracy: true, maximumAge: 0, timeout: 30000 });
+    $("btnStart").textContent = "停止"; $("btnLog").disabled = false;
+    $("altDetail").textContent = "測位待ち…";
+    startedAt = Date.now();
+    try { wakeLock = await navigator.wakeLock?.request("screen"); } catch (e) {}
+  }
+  function stop() {
+    navigator.geolocation.clearWatch(watchId); watchId = null;
+    $("btnStart").textContent = "開始";
+    try { wakeLock?.release(); } catch (e) {}
+  }
+  document.addEventListener("visibilitychange", async () => {
+    if (document.visibilityState === "visible" && watchId != null) {
+      try { wakeLock = await navigator.wakeLock?.request("screen"); } catch (e) {}
+    }
+  });
+
+  // ---------- 1秒ごとの表示更新 ----------
+  function tick() {
+    const now = Date.now();
+    const fresh = last && now - last.t < 5000 && last.h != null;
+    let msl = null;
+    if (fresh) {
+      const acc = `垂直精度 ±${fmt(last.vAcc, 0)} m ／ 水平精度 ±${fmt(last.hAcc, 0)} m<br>`;
+      if (IS_IOS) {
+        msl = last.h;
+        $("altLabel").textContent = "GPS高度（海抜）";
+        $("altDetail").innerHTML = acc + "iPhoneが海抜に換算済みの値";
+      } else {
+        msl = geoid != null ? last.h - geoid : last.h;
+        $("altLabel").textContent = geoid != null ? "GPS高度（海抜）" : "GPS高度（楕円体高）";
+        $("altDetail").innerHTML = acc + `楕円体高 ${fmt(last.h)} m ／ ` +
+          (geoid != null ? `ジオイド高 ${fmt(geoid, 2)} m（${geoidSrc}）` : "ジオイド補正なし（楕円体高を表示）");
+      }
+      $("alt").textContent = fmt(msl) + " m";
+      hist.push([now, msl]);
+      minA = minA == null ? msl : Math.min(minA, msl);
+      maxA = maxA == null ? msl : Math.max(maxA, msl);
+    } else if (watchId != null && !last && now - startedAt > 20000) {
+      $("altDetail").textContent = "位置が届きません。Chromeで開いているか、スマホの位置情報がオンか確認してください（屋内だと時間がかかります）";
+    } else if (watchId != null && last && last.h == null) {
+      $("altDetail").textContent = "高度がまだ得られていません（屋外で待つ）";
+    }
+    hist = hist.filter(h => now - h[0] <= 15000);
+    let vs = null;
+    if (hist.length >= 2) {
+      const a = hist[0], b = hist[hist.length - 1], dt = (b[0] - a[0]) / 1000;
+      if (dt >= 5) vs = (b[1] - a[1]) / dt * 60;
+    }
+    $("vs").textContent = vs == null ? "昇降率 --- m/min" : `昇降率 ${vs >= 0 ? "+" : ""}${fmt(vs)} m/min`;
+    $("minmax").textContent = `最高 ${fmt(maxA)} m / 最低 ${fmt(minA)} m`;
+    $("dem").textContent = fmt(dem) + " m";
+
+    if (watchId != null) {
+      series.push({ gps: msl, dem: fresh ? dem : null });
+      if (series.length > 600) series.shift();
+    }
+    if (logging && fresh) {
+      const c = (v, d = 1) => (v == null || isNaN(v)) ? "" : v.toFixed(d);
+      rows.push([localTime(now), last.lat.toFixed(7), last.lon.toFixed(7),
+        c(msl), IS_IOS ? "" : c(last.h), (IS_IOS || geoid == null) ? "" : c(geoid, 3), c(last.vAcc),
+        c(last.hAcc), c(dem), c(vs)].join(","));
+      $("msg").textContent = `記録中（${rows.length} 行）`;
+    }
+    draw();
+  }
+
+  // ---------- グラフ ----------
+  const cv = $("chart"), ctx = cv.getContext("2d");
+  function draw() {
+    const dpr = window.devicePixelRatio || 1;
+    const W = cv.clientWidth, H = cv.clientHeight;
+    if (cv.width !== W * dpr) { cv.width = W * dpr; cv.height = H * dpr; }
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, W, H);
+    const L = 48, R = W - 12, T = 26, B = H - 22;
+    ctx.font = "11px system-ui"; ctx.fillStyle = "#9aa0a6";
+    ctx.fillText("Altitude [m]", L, 16);
+    legend(R - 118, "#4fc3f7", "GPS"); legend(R - 58, "#81c784", "Ground");
+    const vals = series.flatMap(s => [s.gps, s.dem]).filter(v => v != null);
+    if (!vals.length) { ctx.fillText("Waiting for data…", L, (T + B) / 2); return; }
+    let lo = Math.min(...vals), hi = Math.max(...vals);
+    const span = Math.max(hi - lo, 10), mid = (hi + lo) / 2;
+    lo = Math.floor((mid - span * .6) / 5) * 5; hi = Math.ceil((mid + span * .6) / 5) * 5;
+    const y = v => B - (v - lo) / (hi - lo) * (B - T);
+    const x = i => L + (R - L) * (i + 600 - series.length) / 599;
+    ctx.strokeStyle = "rgba(255,255,255,.12)"; ctx.lineWidth = 1;
+    for (let k = 0; k <= 4; k++) {
+      const v = lo + (hi - lo) * k / 4, yy = y(v);
+      ctx.beginPath(); ctx.moveTo(L, yy); ctx.lineTo(R, yy); ctx.stroke();
+      ctx.fillText(v.toFixed(0), 4, yy + 4);
+    }
+    ctx.fillText("-10 min", L, H - 6); ctx.fillText("now", R - 24, H - 6);
+    line("dem", "#81c784"); line("gps", "#4fc3f7");
+    function line(k, color) {
+      ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.lineJoin = "round"; ctx.beginPath();
+      let pen = false;
+      series.forEach((s, i) => {
+        if (s[k] == null) { pen = false; return; }
+        pen ? ctx.lineTo(x(i), y(s[k])) : ctx.moveTo(x(i), y(s[k])); pen = true;
+      });
+      ctx.stroke();
+    }
+    function legend(lx, color, text) {
+      ctx.strokeStyle = color; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(lx, 12); ctx.lineTo(lx + 14, 12); ctx.stroke();
+      ctx.fillText(text, lx + 18, 16);
+    }
+  }
+
+  // ---------- 記録・保存 ----------
+  $("btnStart").onclick = start;
+  $("btnLog").onclick = () => {
+    logging = !logging;
+    if (logging) { rows = []; $("btnSave").disabled = true; }
+    else { $("btnSave").disabled = rows.length === 0; $("msg").textContent = `記録を止めました（${rows.length} 行）`; }
+    $("btnLog").textContent = logging ? "記録停止" : "記録開始";
+  };
+  $("btnSave").onclick = () => {
+    const head = "time,latitude,longitude,msl_m,ellipsoid_m,geoid_m,v_accuracy_m,h_accuracy_m,ground_elev_m,vertical_speed_m_min";
+    const blob = new Blob(["﻿" + head + "\n" + rows.join("\n") + "\n"], { type: "text/csv" });
+    const a = document.createElement("a");
+    const d = new Date(), p = n => String(n).padStart(2, "0");
+    a.download = `altimeter_${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}.csv`;
+    a.href = URL.createObjectURL(blob); a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  };
+  $("btnReset").onclick = () => { minA = maxA = null; series.length = 0; hist = []; draw(); };
+
+  setInterval(tick, 1000);
+  window.addEventListener("resize", draw);
+  draw();
+})();
+</script>
+</body>
+</html>

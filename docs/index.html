@@ -17,37 +17,37 @@
   main{max-width:560px;margin:0 auto;padding:16px 16px calc(24px + env(safe-area-inset-bottom))}
   h1{font-size:18px;margin:4px 0 14px;color:var(--sub);font-weight:600}
   .card{background:var(--card);border-radius:12px;padding:14px 16px;margin-bottom:12px}
-  .label{font-size:14px;font-weight:700}
+  .label{font-size:16px;font-weight:700}
   .big{font-size:52px;font-weight:600;font-variant-numeric:tabular-nums;line-height:1.1;margin:4px 0}
   .mid{font-size:26px;font-variant-numeric:tabular-nums}
-  .detail{font-size:13px;color:var(--sub);line-height:1.6}
+  .detail{font-size:15px;color:var(--sub);line-height:1.65}
   .row{display:flex;gap:8px}
   .row>*{flex:1}
-  button{font:inherit;font-size:15px;padding:12px 8px;border-radius:10px;border:1px solid var(--line);
+  button{font:inherit;font-size:17px;padding:12px 8px;border-radius:10px;border:1px solid var(--line);
     background:#26303b;color:var(--text)}
   button.primary{background:#1565c0;border-color:#1565c0}
   button:disabled{opacity:.45}
   canvas{width:100%;height:220px;display:block;background:var(--card);border-radius:12px;margin-bottom:12px}
-  .msg{font-size:13px;color:var(--accent);min-height:1.4em;margin-top:8px}
+  .msg{font-size:15px;color:var(--accent);min-height:1.4em;margin-top:8px}
   details{background:var(--card);border-radius:12px;margin-top:12px}
-  summary{padding:14px 16px;font-size:15px;font-weight:700;cursor:pointer;list-style:none}
+  summary{padding:15px 16px;font-size:17px;font-weight:700;cursor:pointer;list-style:none}
   summary::-webkit-details-marker{display:none}
   summary::after{content:"＋";float:right;color:var(--sub)}
   details[open] summary::after{content:"－"}
-  .help{padding:0 16px 14px;font-size:14px;line-height:1.75;color:var(--text)}
-  .help h3{font-size:14px;margin:14px 0 4px;color:var(--gps)}
+  .help{padding:0 16px 14px;font-size:16px;line-height:1.75;color:var(--text)}
+  .help h3{font-size:16px;margin:14px 0 4px;color:var(--gps)}
   .help p,.help ul{margin:4px 0}
   .help ul{padding-left:1.2em}
-  .help .sub{color:var(--sub);font-size:13px}
-  .help table{width:100%;border-collapse:collapse;font-size:13px;margin-top:6px}
+  .help .sub{color:var(--sub);font-size:15px}
+  .help table{width:100%;border-collapse:collapse;font-size:15px;margin-top:6px}
   .help td{border-top:1px solid var(--line);padding:6px 4px;vertical-align:top}
-  .help td:first-child{white-space:nowrap;color:var(--sub);font-family:ui-monospace,monospace;font-size:12px}
-  .risk{display:flex;justify-content:space-between;gap:8px;padding:7px 0;border-top:1px solid var(--line);font-size:15px}
+  .help td:first-child{color:var(--sub);font-family:ui-monospace,monospace;font-size:13px;word-break:break-all}
+  .risk{display:flex;justify-content:space-between;gap:8px;padding:9px 0;border-top:1px solid var(--line);font-size:17px}
   .risk:first-of-type{border-top:none}
   .risk .v{text-align:right;font-weight:600}
   .chip{display:inline-block;width:.8em;height:.8em;border-radius:3px;margin-right:6px;vertical-align:-1px;border:1px solid rgba(255,255,255,.3)}
   .ok{color:var(--sub);font-weight:400}
-  a.btnlink{display:block;text-align:center;text-decoration:none;font-size:15px;padding:12px 8px;border-radius:10px;
+  a.btnlink{display:block;text-align:center;text-decoration:none;font-size:17px;padding:12px 8px;border-radius:10px;
     border:1px solid var(--line);background:#26303b;color:var(--text);margin-top:10px}
 </style>
 </head>
@@ -197,7 +197,7 @@
         <li>詳しくは「重ねるハザードマップで確認する」で地図を開くか、お住まいの市町村のハザードマップを確認してください。</li>
       </ul>
 
-      <h3>内水（地形）＝ 地形からの窪地判定</h3>
+      <h3>内水（地形・計算値）</h3>
       <p>国のデータに内水の想定が無い地域でも目安が分かるよう、<b>自分のいる地点を中心とした一辺100 mの正方形</b>の、四隅と四辺の中点（計8点）の地面の標高を国土地理院のデータで調べ、自分の地点と比べています。</p>
       <ul>
         <li><b>窪地・要注意</b>：8点すべてが自分より30 cm以上高く、平均より50 cm以上低い。雨水が集まりやすい地形です。</li>
@@ -330,7 +330,7 @@
     [[255,145,145], "5〜10 m"], [[242,133,201], "10〜20 m"], [[220,122,220], "20 m以上"]];
   const HAZ = [
     { key: "flood",  name: "洪水（想定最大規模）", path: "01_flood_l2_shinsuishin_data", type: "depth" },
-    { key: "naisui", name: "内水氾濫",             path: "02_naisui_data",               type: "depth" },
+    { key: "naisui", name: "内水（公表データ）",   path: "02_naisui_data",               type: "depth" },
     { key: "tide",   name: "高潮",                 path: "03_hightide_l2_shinsuishin_data", type: "depth" },
     { key: "tsunami",name: "津波",                 path: "04_tsunami_newlegend_data",    type: "depth" },
     { key: "dosek",  name: "土砂（土石流）",       path: "05_dosekiryukeikaikuiki",      type: "dosha" },
@@ -417,10 +417,10 @@
       else if (higher <= 2 && diff >= 0.3) { level = "周囲より高い"; color = "#81c784"; }
       else { level = "平坦または斜面"; color = "#9aa0a6"; }
       $("terrain").innerHTML =
-        `<div class="risk"><span style="white-space:nowrap">内水（地形）</span><span class="v" style="color:${color}">${level}</span></div>` +
+        `<div class="risk"><span>内水（地形・計算値）</span><span class="v" style="color:${color}">${level}</span></div>` +
         `周囲8点（100 m四方）の平均より <b>${diff >= 0 ? "+" : ""}${diff.toFixed(1)} m</b>、` +
         `自分より高い点 <b>${higher}/${ok.length}</b>、周囲でいちばん低いのは${low[1]}（${(low[0] - c >= 0 ? "+" : "") + (low[0] - c).toFixed(1)} m）` +
-        `<br><span style="font-size:12px">※地形だけからの目安です。下水の能力や過去の浸水実績は反映していません。</span>`;
+        `<br><span style="font-size:14px">※地形だけからの目安です。下水の能力や過去の浸水実績は反映していません。</span>`;
     } catch (e) { terAt = null; $("terrain").innerHTML = "周囲の地形：標高データを取得できません"; }
     terBusy = false;
   }

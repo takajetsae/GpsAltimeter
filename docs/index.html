@@ -42,6 +42,13 @@
   .help table{width:100%;border-collapse:collapse;font-size:13px;margin-top:6px}
   .help td{border-top:1px solid var(--line);padding:6px 4px;vertical-align:top}
   .help td:first-child{white-space:nowrap;color:var(--sub);font-family:ui-monospace,monospace;font-size:12px}
+  .risk{display:flex;justify-content:space-between;gap:8px;padding:7px 0;border-top:1px solid var(--line);font-size:15px}
+  .risk:first-of-type{border-top:none}
+  .risk .v{text-align:right;font-weight:600}
+  .chip{display:inline-block;width:.8em;height:.8em;border-radius:3px;margin-right:6px;vertical-align:-1px;border:1px solid rgba(255,255,255,.3)}
+  .ok{color:var(--sub);font-weight:400}
+  a.btnlink{display:block;text-align:center;text-decoration:none;font-size:15px;padding:12px 8px;border-radius:10px;
+    border:1px solid var(--line);background:#26303b;color:var(--text);margin-top:10px}
 </style>
 </head>
 <body>
@@ -66,6 +73,13 @@
   </div>
 
   <canvas id="chart" aria-label="高度グラフ"></canvas>
+
+  <div class="card">
+    <div class="label" style="color:var(--accent)">現在地の災害リスク（想定）</div>
+    <div id="riskList" class="detail" style="margin-top:6px">測位すると表示されます</div>
+    <a id="hzLink" class="btnlink" href="https://disaportal.gsi.go.jp/" target="_blank" rel="noopener">重ねるハザードマップで確認する</a>
+    <div class="detail" style="margin-top:8px">出典：ハザードマップポータルサイト（国土交通省・国土地理院）。市町村のハザードマップと異なる場合があります。</div>
+  </div>
 
   <div class="row">
     <button id="btnStart" class="primary">開始</button>
@@ -121,6 +135,16 @@
       <h3>昇降率</h3>
       <p>直近約15秒の高さの変化を<b>1分あたり</b>に直した値です。＋は上昇、−は下降。GPSの揺らぎで、止まっていても ±数 m/min 動くことがあります。</p>
 
+      <h3>現在地の災害リスク（想定）</h3>
+      <p>国のハザードマップポータルサイトのデータから、今いる地点が各災害の想定区域に入っているかを表示します。</p>
+      <ul>
+        <li><b>洪水・内水氾濫・高潮・津波</b>：想定される最大の浸水の深さ。「0.5〜3 m」なら、1階の床上まで水が来るおそれがある目安です。</li>
+        <li><b>内水氾濫</b>：大雨で下水や水路があふれる浸水。市町村がデータを出している地域だけ表示されます。</li>
+        <li><b>土砂</b>：「警戒区域」は土砂災害のおそれがある区域、「特別警戒区域」は建物が壊れるおそれがあるより危険な区域です。</li>
+        <li><b>想定区域外</b>でも安全という意味ではありません。データが整備されていない場所もあります。</li>
+        <li>詳しくは「重ねるハザードマップで確認する」で地図を開くか、お住まいの市町村のハザードマップを確認してください。</li>
+      </ul>
+
       <h3>最高 / 最低</h3>
       <p>「開始」してからの GPS高度の最高値と最低値です。「リセット」でクリアできます。</p>
 
@@ -152,7 +176,7 @@
     <div class="help">
       <ul>
         <li>位置情報は<b>お使いのスマホの中だけ</b>で処理され、作者を含め誰かに送信・保存されることはありません。</li>
-        <li>例外として、地表の標高を調べるため、緯度経度を<b>国土地理院</b>のサーバーに問い合わせます。</li>
+        <li>例外として、地表の標高と災害リスクを調べるため、現在地周辺のデータを<b>国土地理院</b>のサーバーから取得します。</li>
         <li>CSVは「CSV保存」を押したときに端末へ保存されるだけで、外部には送られません。</li>
         <li>個人が趣味で作った計測ツールです。登山・航空など安全に関わる判断には使わないでください。</li>
         <li>ブラウザでは気圧センサーを使えないため、気圧による高度は表示できません。</li>
@@ -232,13 +256,76 @@
     } catch (e) { demAt = null; $("demDetail").textContent = "標高データを取得できません（通信を確認）"; }
   }
 
+  // ---------- ハザード情報（国土地理院 ハザードマップポータル タイル） ----------
+  const HZ_BASE = "https://disaportaldata.gsi.go.jp/raster/";
+  const DEPTH = [ // 浸水深の凡例（国交省 手引きの標準色）
+    [[247,245,169], "0.5 m未満"], [[255,216,192], "0.5〜3 m"], [[255,183,183], "3〜5 m"],
+    [[255,145,145], "5〜10 m"], [[242,133,201], "10〜20 m"], [[220,122,220], "20 m以上"]];
+  const HAZ = [
+    { key: "flood",  name: "洪水（想定最大規模）", path: "01_flood_l2_shinsuishin_data", type: "depth" },
+    { key: "naisui", name: "内水氾濫",             path: "02_naisui_data",               type: "depth" },
+    { key: "tide",   name: "高潮",                 path: "03_hightide_l2_shinsuishin_data", type: "depth" },
+    { key: "tsunami",name: "津波",                 path: "04_tsunami_newlegend_data",    type: "depth" },
+    { key: "dosek",  name: "土砂（土石流）",       path: "05_dosekiryukeikaikuiki",      type: "dosha" },
+    { key: "kyuke",  name: "土砂（がけ崩れ）",     path: "05_kyukeishakeikaikuiki",      type: "dosha" }];
+  let hzAt = null, hzBusy = false;
+  const hzCanvas = document.createElement("canvas"); hzCanvas.width = hzCanvas.height = 1;
+  const hzCtx = hzCanvas.getContext("2d", { willReadFrequently: true });
+
+  function tileOf(lat, lon, z) {
+    const n = 2 ** z, r = lat * Math.PI / 180;
+    const x = (lon + 180) / 360 * n;
+    const y = (1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2 * n;
+    return { z, x: Math.floor(x), y: Math.floor(y),
+             px: Math.floor((x - Math.floor(x)) * 256), py: Math.floor((y - Math.floor(y)) * 256) };
+  }
+  async function pixelAt(path, t) {
+    const res = await fetch(`${HZ_BASE}${path}/${t.z}/${t.x}/${t.y}.png`);
+    if (res.status === 404) return null;               // タイルなし＝想定区域外
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const bmp = await createImageBitmap(await res.blob());
+    hzCtx.clearRect(0, 0, 1, 1);
+    hzCtx.drawImage(bmp, t.px, t.py, 1, 1, 0, 0, 1, 1);
+    const d = hzCtx.getImageData(0, 0, 1, 1).data;
+    return d[3] < 10 ? null : [d[0], d[1], d[2]];
+  }
+  function classify(h, rgb) {
+    if (!rgb) return { text: "想定区域外", ok: true };
+    if (h.type === "dosha") {
+      const [r, g, b] = rgb;
+      if (r > 150 && g < 110) return { text: "特別警戒区域", rgb };
+      return { text: "警戒区域", rgb };
+    }
+    let best = null, bd = 1e9;
+    for (const [c, label] of DEPTH) {
+      const d = (c[0]-rgb[0])**2 + (c[1]-rgb[1])**2 + (c[2]-rgb[2])**2;
+      if (d < bd) { bd = d; best = label; }
+    }
+    return { text: bd < 1600 ? `浸水 ${best}` : "浸水想定区域内", rgb };
+  }
+  async function updateHazard(p) {
+    if (hzBusy || (hzAt && dist(hzAt, p) < 50)) return;
+    hzBusy = true; hzAt = p;
+    $("hzLink").href = `https://disaportal.gsi.go.jp/maps/?ll=${p.lat.toFixed(6)},${p.lon.toFixed(6)}&z=16&base=pale`;
+    const t = tileOf(p.lat, p.lon, 17);
+    const rows = await Promise.all(HAZ.map(async h => {
+      try { return [h, classify(h, await pixelAt(h.path, t))]; }
+      catch (e) { return [h, { text: "取得できません", ok: true }]; }
+    }));
+    $("riskList").innerHTML = rows.map(([h, r]) =>
+      `<div class="risk"><span>${h.name}</span><span class="v${r.ok ? " ok" : ""}">` +
+      (r.rgb ? `<span class="chip" style="background:rgb(${r.rgb.join(",")})"></span>` : "") +
+      `${r.text}</span></div>`).join("");
+    hzBusy = false;
+  }
+
   // ---------- 測位 ----------
   function onPos(pos) {
     const c = pos.coords;
     last = { t: pos.timestamp, lat: c.latitude, lon: c.longitude, h: c.altitude,
              hAcc: c.accuracy, vAcc: c.altitudeAccuracy, speed: c.speed };
     const p = { lat: c.latitude, lon: c.longitude };
-    updateGeoid(p); updateDem(p);
+    updateGeoid(p); updateDem(p); updateHazard(p);
   }
   function onErr(e) {
     const m = { 1: "位置情報が許可されていません（Chromeのサイト設定で許可してください）",

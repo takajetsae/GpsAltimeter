@@ -68,19 +68,20 @@
   </div>
 
   <div class="card">
+    <div class="label" style="color:var(--accent)">現在地の災害リスク（想定）</div>
+    <div id="terrain" class="detail" style="margin-top:6px">測位すると表示されます</div>
+    <div id="riskList" class="detail" style="margin-top:8px;border-top:1px solid var(--line);padding-top:4px"></div>
+    <a id="hzLink" class="btnlink" href="https://disaportal.gsi.go.jp/" target="_blank" rel="noopener">重ねるハザードマップで確認する</a>
+    <div class="detail" style="margin-top:8px"><a href="#hzHelp" onclick="document.getElementById('hzHelp').open=true" style="color:var(--gps)">この欄の見方</a>（ページ下部）<br>出典：ハザードマップポータルサイト（国土交通省・国土地理院）。市町村のハザードマップと異なる場合があります。</div>
+  </div>
+
+  <div class="card">
     <div class="mid" id="vs">昇降率 --- m/min</div>
     <div class="detail" id="minmax">最高 --- / 最低 ---</div>
   </div>
 
   <canvas id="chart" aria-label="高度グラフ"></canvas>
 
-  <div class="card">
-    <div class="label" style="color:var(--accent)">現在地の災害リスク（想定）</div>
-    <div id="riskList" class="detail" style="margin-top:6px">測位すると表示されます</div>
-    <div id="terrain" class="detail" style="margin-top:4px;border-top:1px solid var(--line);padding-top:8px"></div>
-    <a id="hzLink" class="btnlink" href="https://disaportal.gsi.go.jp/" target="_blank" rel="noopener">重ねるハザードマップで確認する</a>
-    <div class="detail" style="margin-top:8px"><a href="#hzHelp" onclick="document.getElementById('hzHelp').open=true" style="color:var(--gps)">この欄の見方</a>（ページ下部）<br>出典：ハザードマップポータルサイト（国土交通省・国土地理院）。市町村のハザードマップと異なる場合があります。</div>
-  </div>
 
   <div class="card">
     <div class="label" style="color:var(--dem)">気圧で高度を測る（phyphoxアプリを使用）</div>
@@ -196,10 +197,10 @@
         <li>詳しくは「重ねるハザードマップで確認する」で地図を開くか、お住まいの市町村のハザードマップを確認してください。</li>
       </ul>
 
-      <h3>内水（地形から推定）</h3>
+      <h3>内水（地形）＝ 地形からの窪地判定</h3>
       <p>国のデータに内水の想定が無い地域でも目安が分かるよう、<b>自分のいる地点を中心とした一辺100 mの正方形</b>の、四隅と四辺の中点（計8点）の地面の標高を国土地理院のデータで調べ、自分の地点と比べています。</p>
       <ul>
-        <li><b>窪地（周囲すべてより低い）</b>：8点すべてが自分より30 cm以上高く、平均より50 cm以上低い。雨水が集まりやすい地形です。</li>
+        <li><b>窪地・要注意</b>：8点すべてが自分より30 cm以上高く、平均より50 cm以上低い。雨水が集まりやすい地形です。</li>
         <li><b>周囲より低め</b>：ほとんどの点が自分より高い。</li>
         <li><b>平坦または斜面</b>：水は流れていきやすいが、斜面の下側は要注意。</li>
         <li><b>周囲より高い</b>：水が集まりにくい地形。</li>
@@ -411,12 +412,12 @@
       const higher = ok.filter(x => x[0] - c > 0.3).length;   // 自分より30cm以上高い点の数
       const low = ok.reduce((m, x) => x[0] < m[0] ? x : m);
       let level, color;
-      if (higher === ok.length && diff <= -0.5) { level = "窪地（周囲すべてより低い）"; color = "#ff9191"; }
+      if (higher === ok.length && diff <= -0.5) { level = "窪地・要注意"; color = "#ff9191"; }
       else if (higher >= ok.length - 2 && diff <= -0.3) { level = "周囲より低め"; color = "#ffd8c0"; }
       else if (higher <= 2 && diff >= 0.3) { level = "周囲より高い"; color = "#81c784"; }
       else { level = "平坦または斜面"; color = "#9aa0a6"; }
       $("terrain").innerHTML =
-        `<div class="risk"><span>内水（地形から推定）</span><span class="v" style="color:${color}">${level}</span></div>` +
+        `<div class="risk"><span style="white-space:nowrap">内水（地形）</span><span class="v" style="color:${color}">${level}</span></div>` +
         `周囲8点（100 m四方）の平均より <b>${diff >= 0 ? "+" : ""}${diff.toFixed(1)} m</b>、` +
         `自分より高い点 <b>${higher}/${ok.length}</b>、周囲でいちばん低いのは${low[1]}（${(low[0] - c >= 0 ? "+" : "") + (low[0] - c).toFixed(1)} m）` +
         `<br><span style="font-size:12px">※地形だけからの目安です。下水の能力や過去の浸水実績は反映していません。</span>`;

@@ -29,6 +29,19 @@
   button:disabled{opacity:.45}
   canvas{width:100%;height:220px;display:block;background:var(--card);border-radius:12px;margin-bottom:12px}
   .msg{font-size:13px;color:var(--accent);min-height:1.4em;margin-top:8px}
+  details{background:var(--card);border-radius:12px;margin-top:12px}
+  summary{padding:14px 16px;font-size:15px;font-weight:700;cursor:pointer;list-style:none}
+  summary::-webkit-details-marker{display:none}
+  summary::after{content:"＋";float:right;color:var(--sub)}
+  details[open] summary::after{content:"－"}
+  .help{padding:0 16px 14px;font-size:14px;line-height:1.75;color:var(--text)}
+  .help h3{font-size:14px;margin:14px 0 4px;color:var(--gps)}
+  .help p,.help ul{margin:4px 0}
+  .help ul{padding-left:1.2em}
+  .help .sub{color:var(--sub);font-size:13px}
+  .help table{width:100%;border-collapse:collapse;font-size:13px;margin-top:6px}
+  .help td{border-top:1px solid var(--line);padding:6px 4px;vertical-align:top}
+  .help td:first-child{white-space:nowrap;color:var(--sub);font-family:ui-monospace,monospace;font-size:12px}
 </style>
 </head>
 <body>
@@ -63,12 +76,90 @@
     <button id="btnReset">リセット</button>
   </div>
   <div class="msg" id="msg"></div>
-  <p class="detail">※ブラウザでは気圧センサーを使えないため、GPS高度のみです。屋外で数十秒〜1分待つと精度が上がります。画面は点灯したままにしてください。</p>
+
+  <details>
+    <summary>使い方</summary>
+    <div class="help">
+      <ul>
+        <li>スマホの<b>Chrome / Safari / Edge</b>で開き、「開始」→ 位置情報を「許可」。</li>
+        <li><b>屋外</b>で30秒〜1分待つと値が落ち着きます。屋内・窓から遠い場所では誤差が大きくなります。</li>
+        <li>LINEなどアプリ内のブラウザでは位置が取れないことがあります。その場合はChrome・Safariで開き直してください。</li>
+        <li>計測中は画面を点灯したままにしてください（画面を消すと止まります）。</li>
+        <li>ホーム画面に追加するとアプリのように使えます（Android：メニュー「︙」→「ホーム画面に追加」／iPhone：Safariの共有ボタン→「ホーム画面に追加」）。</li>
+      </ul>
+    </div>
+  </details>
+
+  <details>
+    <summary>表示されるデータの見方</summary>
+    <div class="help">
+      <h3>GPS高度（海抜）</h3>
+      <p>スマホのGPSで測った、<b>平均海面からの高さ</b>です。</p>
+      <ul>
+        <li><b>垂直精度 ±◯ m</b>：高さの誤差の目安。数字が小さいほど信頼できます（Androidでは「---」になることがあります）。</li>
+        <li><b>水平精度 ±◯ m</b>：位置（緯度経度）の誤差の目安。</li>
+        <li class="sub">GPSは高さ方向が苦手で、条件が良くても ±5〜10 m 程度はずれます。</li>
+      </ul>
+
+      <h3>楕円体高・ジオイド高（Androidのみ表示）</h3>
+      <p>GPSがもともと出す高さは、地球を「なめらかな楕円体」とみなした面からの高さ（<b>楕円体高</b>）です。実際の海面はその面より日本付近で約35〜45 m高い位置にあり、この差を<b>ジオイド高</b>と呼びます。</p>
+      <p><b>海抜 ＝ 楕円体高 − ジオイド高</b> で換算しています（EGM96モデル、日本付近の誤差は1 m程度）。iPhoneは端末が換算済みの値を返すため、この欄は出ません。</p>
+
+      <h3>地表の標高（国土地理院）</h3>
+      <p>国土地理院の地図データによる、<b>今いる地点の地面の高さ</b>です（参考値）。「データ: 5m（レーザ）」などはデータの種類で、レーザ測量のものが最も精密です。</p>
+      <ul>
+        <li>地面に立っていれば、GPS高度とほぼ同じになるはずです。</li>
+        <li>建物の上の階にいると、1階あたり約3 m、GPS高度のほうが高くなります。</li>
+      </ul>
+
+      <h3>昇降率</h3>
+      <p>直近約15秒の高さの変化を<b>1分あたり</b>に直した値です。＋は上昇、−は下降。GPSの揺らぎで、止まっていても ±数 m/min 動くことがあります。</p>
+
+      <h3>最高 / 最低</h3>
+      <p>「開始」してからの GPS高度の最高値と最低値です。「リセット」でクリアできます。</p>
+
+      <h3>グラフ</h3>
+      <p>直近10分間の推移です。青（GPS）がGPS高度、緑（Ground）が地表の標高。右端が現在です。</p>
+    </div>
+  </details>
+
+  <details>
+    <summary>記録（CSV）について</summary>
+    <div class="help">
+      <p>「記録開始」→「記録停止」→「CSV保存」で、1秒ごとのデータをファイルに保存できます。Excelで開けます。</p>
+      <table>
+        <tr><td>time</td><td>時刻（スマホの時計の時刻）</td></tr>
+        <tr><td>latitude / longitude</td><td>緯度 / 経度</td></tr>
+        <tr><td>msl_m</td><td>GPS高度（海抜）[m]</td></tr>
+        <tr><td>ellipsoid_m</td><td>楕円体高 [m]（iPhoneは空欄）</td></tr>
+        <tr><td>geoid_m</td><td>ジオイド高 [m]（iPhoneは空欄）</td></tr>
+        <tr><td>v_accuracy_m</td><td>垂直精度 [m]</td></tr>
+        <tr><td>h_accuracy_m</td><td>水平精度 [m]</td></tr>
+        <tr><td>ground_elev_m</td><td>地表の標高（国土地理院）[m]</td></tr>
+        <tr><td>vertical_speed_m_min</td><td>昇降率 [m/分]</td></tr>
+      </table>
+    </div>
+  </details>
+
+  <details>
+    <summary>プライバシー・注意事項</summary>
+    <div class="help">
+      <ul>
+        <li>位置情報は<b>お使いのスマホの中だけ</b>で処理され、作者を含め誰かに送信・保存されることはありません。</li>
+        <li>例外として、地表の標高を調べるため、緯度経度を<b>国土地理院</b>のサーバーに問い合わせます。</li>
+        <li>CSVは「CSV保存」を押したときに端末へ保存されるだけで、外部には送られません。</li>
+        <li>個人が趣味で作った計測ツールです。登山・航空など安全に関わる判断には使わないでください。</li>
+        <li>ブラウザでは気圧センサーを使えないため、気圧による高度は表示できません。</li>
+      </ul>
+    </div>
+  </details>
 </main>
 
 <script>
 (() => {
   const $ = id => document.getElementById(id);
+  const localTime = t => { const d = new Date(t), p = n => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`; };
   const fmt = (v, d = 1) => (v == null || isNaN(v)) ? "---" : v.toFixed(d);
 
   let watchId = null, wakeLock = null, startedAt = 0;
@@ -211,9 +302,10 @@
       if (series.length > 600) series.shift();
     }
     if (logging && fresh) {
-      rows.push([new Date(now).toISOString(), last.lat.toFixed(7), last.lon.toFixed(7),
-        fmt(msl), IS_IOS ? "" : fmt(last.h), (IS_IOS || geoid == null) ? "" : geoid.toFixed(3), fmt(last.vAcc),
-        fmt(last.hAcc), dem == null ? "" : dem.toFixed(1), vs == null ? "" : vs.toFixed(1)].join(","));
+      const c = (v, d = 1) => (v == null || isNaN(v)) ? "" : v.toFixed(d);
+      rows.push([localTime(now), last.lat.toFixed(7), last.lon.toFixed(7),
+        c(msl), IS_IOS ? "" : c(last.h), (IS_IOS || geoid == null) ? "" : c(geoid, 3), c(last.vAcc),
+        c(last.hAcc), c(dem), c(vs)].join(","));
       $("msg").textContent = `記録中（${rows.length} 行）`;
     }
     draw();

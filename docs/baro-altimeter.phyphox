@@ -1,0 +1,195 @@
+<phyphox version="1.14" locale="ja">
+  <title>気圧高度計（GPS校正）</title>
+  <category>GPS高度計</category>
+  <description>
+スマホの気圧センサーで高度を測ります。GPS高度で基準を合わせる（校正する）と、海抜の高さになります。
+
+使い方：
+1. ▶（開始）を押す。屋外で1分ほど待ち、GPS高度が安定するのを待つ。
+2. 「GPS高度で校正」を押す。これで気圧高度がGPS高度に合わせられる。
+3. 以後は気圧で細かな上下の変化を追える（階段1階分＝約3 m）。
+天気が変わると気圧が変わり、少しずつずれます。ときどき校正し直してください。
+空港の気象情報などで海面気圧（QNH）が分かる場合は「基準気圧」に直接入力しても合わせられます。
+
+計算式：高度 = 44330.77 × (1 − (気圧 ÷ 基準気圧)^0.190295)
+  </description>
+  <link label="GPS高度計（Web版）">https://takajetsae.github.io/GpsAltimeter/</link>
+
+  <data-containers>
+    <container size="0">p</container>
+    <container size="0">pt</container>
+    <container size="1">pl</container>
+    <container size="0">z</container>
+    <container size="0">zt</container>
+    <container size="0">zAcc</container>
+    <container size="1">zl</container>
+    <container size="1">zAccl</container>
+    <container size="1" init="0">status</container>
+    <container size="1" init="1013.25">p0</container>
+    <container size="1">p0c</container>
+    <container size="0">h</container>
+    <container size="1">hl</container>
+    <container size="1">dh</container>
+    <container size="0">dt</container>
+    <container size="0">dhdt</container>
+    <container size="0">v</container>
+    <container size="0">vt</container>
+    <container size="0">tmp</container>
+    <container size="0">tmp2</container>
+  </data-containers>
+
+  <input>
+    <sensor type="pressure" rate="1" average="true">
+      <output component="x">p</output>
+      <output component="t">pt</output>
+    </sensor>
+    <location>
+      <output component="z">z</output>
+      <output component="zAccuracy">zAcc</output>
+      <output component="t">zt</output>
+      <output component="status">status</output>
+    </location>
+  </input>
+
+  <views>
+    <view label="高度">
+      <value label="気圧高度" precision="1" unit="m" size="2">
+        <input>hl</input>
+      </value>
+      <value label="GPS高度（海抜）" precision="1" unit="m">
+        <input>zl</input>
+      </value>
+      <value label="GPS垂直精度 ±" precision="0" unit="m">
+        <input>zAccl</input>
+      </value>
+      <value label="気圧高度 − GPS高度" precision="1" unit="m">
+        <input>dh</input>
+      </value>
+      <value label="GPS">
+        <input>status</input>
+        <map max="-1">オフ</map>
+        <map min="-0.5" max="0.5">測位中…</map>
+        <map min="0.5">受信中</map>
+      </value>
+      <separator height="1"/>
+      <button label="GPS高度で校正">
+        <input type="buffer">p0c</input>
+        <output>p0</output>
+      </button>
+      <edit label="基準気圧（QNH）を入力" unit="hPa" default="1013.25" signed="false" min="850" max="1100">
+        <output>p0</output>
+      </edit>
+      <value label="現在の基準気圧" precision="2" unit="hPa">
+        <input>p0</input>
+      </value>
+      <separator height="1"/>
+      <graph label="Barometric altitude" timeOnX="true" labelX="t" unitX="s" labelY="h" unitY="m" partialUpdate="false">
+        <input axis="x">pt</input>
+        <input axis="y">h</input>
+      </graph>
+    </view>
+    <view label="昇降・気圧">
+      <value label="昇降率" precision="1" unit="m/min" factor="60" size="2">
+        <input>v</input>
+      </value>
+      <value label="気圧" precision="2" unit="hPa">
+        <input>pl</input>
+      </value>
+      <graph label="Vertical speed" timeOnX="true" labelX="t" unitX="s" labelY="v" unitY="m/s" partialUpdate="true">
+        <input axis="x">vt</input>
+        <input axis="y">v</input>
+      </graph>
+      <graph label="Pressure" timeOnX="true" labelX="t" unitX="s" labelY="p" unitY="hPa" partialUpdate="true">
+        <input axis="x">pt</input>
+        <input axis="y">p</input>
+      </graph>
+      <graph label="GPS altitude" timeOnX="true" labelX="t" unitX="s" labelY="z" unitY="m" partialUpdate="true">
+        <input axis="x">zt</input>
+        <input axis="y">z</input>
+      </graph>
+    </view>
+  </views>
+
+  <analysis>
+    <!-- 最新値を取り出す（サイズ1のバッファに追記すると最新値だけが残る） -->
+    <append>
+      <input clear="false">p</input>
+      <output>pl</output>
+    </append>
+    <append>
+      <input clear="false">z</input>
+      <output>zl</output>
+    </append>
+    <append>
+      <input clear="false">zAcc</input>
+      <output>zAccl</output>
+    </append>
+
+    <!-- GPS高度から逆算した基準気圧（校正ボタンで p0 にコピーされる） -->
+    <formula formula="[1]/((1-[2]/44330.77)^5.25588)">
+      <input clear="false">pl</input>
+      <input clear="false">zl</input>
+      <output>p0c</output>
+    </formula>
+
+    <!-- 気圧高度（全データ） -->
+    <formula formula="44330.77*(1-([1_]/[2])^0.190295)">
+      <input clear="false">p</input>
+      <input clear="false">p0</input>
+      <output>h</output>
+    </formula>
+    <formula formula="44330.77*(1-([1]/[2])^0.190295)">
+      <input clear="false">pl</input>
+      <input clear="false">p0</input>
+      <output>hl</output>
+    </formula>
+    <subtract>
+      <input clear="false">hl</input>
+      <input clear="false">zl</input>
+      <output>dh</output>
+    </subtract>
+
+    <!-- 昇降率 = 高度の差 ÷ 時間の差 -->
+    <differentiate>
+      <input clear="false">pt</input>
+      <output>dt</output>
+    </differentiate>
+    <differentiate>
+      <input clear="false">h</input>
+      <output>dhdt</output>
+    </differentiate>
+    <divide>
+      <input>dhdt</input>
+      <input clear="false">dt</input>
+      <output>v</output>
+    </divide>
+    <divide>
+      <input clear="false">dt</input>
+      <input type="value">2</input>
+      <output>tmp</output>
+    </divide>
+    <match>
+      <input clear="false">pt</input>
+      <input clear="false">tmp</input>
+      <output>tmp2</output>
+    </match>
+    <add>
+      <input>tmp2</input>
+      <input>tmp</input>
+      <output>vt</output>
+    </add>
+  </analysis>
+
+  <export>
+    <set name="Barometric altitude">
+      <data name="Time (s)">pt</data>
+      <data name="Pressure (hPa)">p</data>
+      <data name="Barometric altitude (m)">h</data>
+    </set>
+    <set name="GPS">
+      <data name="Time (s)">zt</data>
+      <data name="GPS altitude MSL (m)">z</data>
+      <data name="Vertical accuracy (m)">zAcc</data>
+    </set>
+  </export>
+</phyphox>

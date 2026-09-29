@@ -81,6 +81,17 @@
     <div class="detail" style="margin-top:8px"><a href="#hzHelp" onclick="document.getElementById('hzHelp').open=true" style="color:var(--gps)">この欄の見方</a>（ページ下部）<br>出典：ハザードマップポータルサイト（国土交通省・国土地理院）。市町村のハザードマップと異なる場合があります。</div>
   </div>
 
+  <div class="card">
+    <div class="label" style="color:var(--dem)">気圧で高度を測る（phyphoxアプリを使用）</div>
+    <div class="detail" style="margin-top:6px">ブラウザからは気圧センサーを読めないため、無料アプリ「phyphox」の中で動く気圧高度計を用意しました。階段1階分（約3 m）の上下も分かります。</div>
+    <div class="row" style="margin-top:10px">
+      <a class="btnlink" style="flex:1;margin-top:0" href="https://play.google.com/store/apps/details?id=de.rwth_aachen.phyphox" target="_blank" rel="noopener">① phyphox（Android）</a>
+      <a class="btnlink" style="flex:1;margin-top:0" href="https://apps.apple.com/app/phyphox/id1127319693" target="_blank" rel="noopener">① phyphox（iPhone）</a>
+    </div>
+    <a class="btnlink" href="phyphox://takajetsae.github.io/GpsAltimeter/baro-altimeter.phyphox">② 気圧高度計をphyphoxで開く</a>
+    <div class="detail" style="margin-top:8px"><a href="#baroHelp" onclick="document.getElementById('baroHelp').open=true" style="color:var(--gps)">使い方</a>（ページ下部）</div>
+  </div>
+
   <div class="row">
     <button id="btnStart" class="primary">開始</button>
     <button id="btnLog" disabled>記録開始</button>
@@ -140,6 +151,33 @@
 
       <h3>グラフ</h3>
       <p>直近10分間の推移です。青（GPS）がGPS高度、緑（Ground）が地表の標高。右端が現在です。</p>
+    </div>
+  </details>
+
+  <details id="baroHelp">
+    <summary>気圧高度（phyphox）の使い方</summary>
+    <div class="help">
+      <p><b>phyphox</b>はドイツのアーヘン工科大学が作っている、スマホのセンサーで実験するための無料アプリです（広告なし）。その中で動く「気圧高度計（GPS校正）」を用意しました。</p>
+      <h3>準備（最初の1回だけ）</h3>
+      <ul>
+        <li>①のボタンから phyphox をインストールします。</li>
+        <li>②「気圧高度計をphyphoxで開く」を押すと、phyphoxに実験が読み込まれます。「保存しますか」と聞かれたら保存すると、次からはphyphoxの一覧から開けます。</li>
+        <li>②を押しても開かない場合は、phyphoxの「＋」→「QRコードから実験を追加」で、下のアドレスを使う方法もあります：<br><span class="sub">https://takajetsae.github.io/GpsAltimeter/baro-altimeter.phyphox</span></li>
+      </ul>
+      <h3>測り方</h3>
+      <ul>
+        <li>phyphoxの画面上の ▶ を押して開始し、位置情報を許可します。</li>
+        <li>屋外で1分ほど待ち、「GPS高度」が落ち着いたら <b>「GPS高度で校正」</b> を押します。気圧高度がGPS高度に合わせられます。</li>
+        <li>その後は、気圧で細かな上下の変化を追えます。「昇降・気圧」タブで昇降率とグラフが見られます。</li>
+      </ul>
+      <h3>表示の意味</h3>
+      <ul>
+        <li><b>気圧高度</b>：気圧から計算した高さ。短時間の上下の変化に強い。</li>
+        <li><b>GPS高度（海抜）</b>：GPSの高さ。絶対値はこちらが基準。</li>
+        <li><b>気圧高度 − GPS高度</b>：両者の差。大きくずれてきたら校正し直しの合図です。</li>
+        <li><b>基準気圧（QNH）</b>：海面での気圧。校正で自動で決まります。空港の気象情報などで分かれば直接入力もできます。</li>
+      </ul>
+      <p class="sub">天気の変化で気圧は1日に数 hPa変わり、何もしなくても高度が数十 mずれることがあります。長時間使うときはときどき校正してください。気圧センサーが無い機種では気圧高度は表示されません。</p>
     </div>
   </details>
 

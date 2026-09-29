@@ -6,7 +6,8 @@
 
 使い方：
 1. ▶（開始）を押す。屋外で1分ほど待ち、GPS高度が安定するのを待つ。
-2. 「GPS高度で校正」を押す。これで気圧高度がGPS高度に合わせられる。
+2. 「GPS高度で校正」を押す（GPS垂直精度が±10 m以下のときに）。これで気圧高度がGPS高度に合わせられる。
+   屋内などでGPSが不正確なときは、「今いる場所の標高」に地図の標高（Web版の「地表の標高」など）を入れて「入力した標高で校正」を押す。
 3. 以後は気圧で細かな上下の変化を追える（階段1階分＝約3 m）。
 天気が変わると気圧が変わり、少しずつずれます。ときどき校正し直してください。
 空港の気象情報などで海面気圧（QNH）が分かる場合は「基準気圧」に直接入力しても合わせられます。
@@ -27,6 +28,8 @@
     <container size="1" init="0">status</container>
     <container size="1" init="1013.25">p0</container>
     <container size="1">p0c</container>
+    <container size="1" init="0">hk</container>
+    <container size="1">p0k</container>
     <container size="0">h</container>
     <container size="1">hl</container>
     <container size="1">dh</container>
@@ -74,6 +77,13 @@
       <separator height="1"/>
       <button label="GPS高度で校正">
         <input type="buffer">p0c</input>
+        <output>p0</output>
+      </button>
+      <edit label="今いる場所の標高" unit="m" default="0" min="-500" max="9000">
+        <output>hk</output>
+      </edit>
+      <button label="入力した標高で校正">
+        <input type="buffer">p0k</input>
         <output>p0</output>
       </button>
       <edit label="基準気圧（QNH）を入力" unit="hPa" default="1013.25" signed="false" min="850" max="1100">
@@ -130,6 +140,13 @@
       <input clear="false">pl</input>
       <input clear="false">zl</input>
       <output>p0c</output>
+    </formula>
+
+    <!-- 入力した標高から逆算した基準気圧 -->
+    <formula formula="[1]/((1-[2]/44330.77)^5.25588)">
+      <input clear="false">pl</input>
+      <input clear="false">hk</input>
+      <output>p0k</output>
     </formula>
 
     <!-- 気圧高度（全データ） -->

@@ -54,6 +54,10 @@
 <body>
 <main>
   <h1>GPS高度計（Web版）</h1>
+  <div id="inapp" style="display:none;background:#5d4037;border-radius:12px;padding:14px 16px;margin-bottom:12px;font-size:16px;line-height:1.6">
+    アプリの中のブラウザで開いています。位置情報が取れないことがあるので、下のボタンでブラウザ（Chrome・Safari）で開き直してください。
+    <a id="inappBtn" class="btnlink" href="#" style="background:#1565c0;border-color:#1565c0">ブラウザで開き直す</a>
+  </div>
 
   <div class="card">
     <div class="label" style="color:var(--gps)" id="altLabel">GPS高度（海抜）</div>
@@ -269,6 +273,20 @@
   let minA = null, maxA = null;
   let logging = false, rows = [];
   const series = [];          // {gps, dem} 1秒ごと、最大600点
+
+  // ---------- LINE などアプリ内ブラウザの検出 ----------
+  (() => {
+    const ua = navigator.userAgent;
+    const isLine = /\bLine\//i.test(ua);
+    const inApp = isLine || /FBAN|FBAV|Instagram|KAKAOTALK|; wv\)/i.test(ua);
+    if (!inApp) return;
+    const url = location.origin + location.pathname;
+    let href = url + "?openExternalBrowser=1";                    // LINE はこれで外部ブラウザを開く
+    if (!isLine && /Android/i.test(ua))
+      href = "intent://" + location.host + location.pathname + "#Intent;scheme=https;package=com.android.chrome;end";
+    $("inappBtn").href = href;
+    $("inapp").style.display = "block";
+  })();
 
   // ---------- 国土地理院 API ----------
   function dist(a, b) {

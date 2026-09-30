@@ -205,6 +205,8 @@
         <li><b>平坦または斜面</b>：水は流れていきやすいが、斜面の下側は要注意。</li>
         <li><b>周囲より高い</b>：水が集まりにくい地形。</li>
       </ul>
+      <p><b>絵の見方</b>：真ん中の白いマスが現在地です。周りの8マスは自分との高さの差で、<span style="color:#29b6f6">青いほど低く</span>、<span style="color:#b07d50">茶色いほど高い</span>ことを表します。<b>青い矢印</b>は水が流れていく向き（いちばん低い方）、<b>赤い矢印</b>は周りから水が集まってくる（窪地）ことを表します。赤丸の「N」が北です。</p>
+      <p>「<b>コンパスで向きを合わせる</b>」を押すと、スマホを水平に持ったときの画面の上方向が、実際の前方向と一致するように絵が回転します（iPhoneは最初に許可が必要です）。</p>
       <p class="sub">あくまで地形からの目安です。実際の内水氾濫は下水道の能力や水路の位置にも左右されます。市町村の内水ハザードマップがある地域では、そちらを優先してください。</p>
 
       <h3>ハザードマップとは</h3>
@@ -395,6 +397,97 @@
     const e = parseFloat(j.elevation);
     return isNaN(e) ? null : e;
   }
+  // ---------- 地形の絵（3×3マス）とコンパス ----------
+  let terData = null, compassOn = false, heading = 0, headingRaw = null, drawPending = false;
+  function mix(a, b, t) { return a.map((x, i) => Math.round(x + (b[i] - x) * t)); }
+  function cellColor(d) {                        // d = 周囲 − 自分 [m]
+    const t = Math.max(-1, Math.min(1, d / 2));
+    const base = [52, 62, 74];
+    return t < 0 ? mix(base, [30, 136, 229], -t)   // 低い＝青
+                 : mix(base, [176, 125, 80], t);   // 高い＝茶
+  }
+  function renderTerrainMap() {
+    const el = document.getElementById("terrainMap");
+    if (!el || !terData) return;
+    const S = 96, G = 6, O = 26, W = O * 2 + S * 3 + G * 2, C = W / 2;
+    const rot = compassOn ? -heading : 0;
+    const cx = col => O + col * (S + G) + S / 2, cy = row => O + row * (S + G) + S / 2;
+    const txt = (x, y, str, size, fill, weight) =>
+      `<text x="${x}" y="${y}" font-size="${size}" fill="${fill}" font-weight="${weight || 400}" text-anchor="middle" dominant-baseline="central">${str}</text>`;
+    const up = (x, y, inner) => `<g transform="rotate(${-rot} ${x} ${y})">${inner}</g>`;   // 文字は常に正立
+    let g = "";
+    // 中央（現在地）
+    g += `<rect x="${cx(1) - S/2}" y="${cy(1) - S/2}" width="${S}" height="${S}" rx="10" fill="#e8eaed"/>`;
+    g += up(cx(1), cy(1), txt(cx(1), cy(1) - 14, "現在地", 17, "#101418", 700) + txt(cx(1), cy(1) + 14, terData.c.toFixed(1) + " m", 15, "#101418"));
+    for (const k of terData.cells) {
+      const x = cx(k.col), y = cy(k.row);
+      if (k.v == null) {
+        g += `<rect x="${x - S/2}" y="${y - S/2}" width="${S}" height="${S}" rx="10" fill="#2a3038"/>` + up(x, y, txt(x, y, "データなし", 13, "#9aa0a6"));
+        continue;
+      }
+      const d = k.v - terData.c, col = cellColor(d);
+      const lum = (0.3 * col[0] + 0.59 * col[1] + 0.11 * col[2]);
+      const fg = lum > 140 ? "#101418" : "#ffffff";
+      g += `<rect x="${x - S/2}" y="${y - S/2}" width="${S}" height="${S}" rx="10" fill="rgb(${col.join(",")})"/>`;
+      g += up(x, y, txt(x, y - 12, (d >= 0 ? "+" : "") + d.toFixed(1) + " m", 18, fg, 700) + txt(x, y + 16, k.name, 13, fg));
+    }
+    // 矢印
+    const arrow = (x1, y1, x2, y2, color, w) =>
+      `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${color}" stroke-width="${w}" stroke-linecap="round" marker-end="url(#ah_${color.slice(1)})"/>`;
+    if (terData.pool) {                          // 窪地：周りから集まる
+      for (const k of terData.cells) {
+        if (k.v == null || k.v - terData.c <= 0.1) continue;
+        const x = cx(k.col), y = cy(k.row), dx = C - x, dy = C - y;
+        g += arrow(x + dx * 0.35, y + dy * 0.35, x + dx * 0.62, y + dy * 0.62, "#ff5252", 5);
+      }
+    } else {                                     // 一番低い方向へ流れる
+      const k = terData.cells.find(q => q.name === terData.low[1]);
+      const x = cx(k.col), y = cy(k.row), dx = x - C, dy = y - C;
+      g += arrow(C + dx * 0.3, C + dy * 0.3, C + dx * 0.6, C + dy * 0.6, "#29b6f6", 9);
+    }
+    // 方位（N）
+    g += `<circle cx="${C}" cy="12" r="11" fill="#ff5252"/>` + up(C, 12, txt(C, 12, "N", 14, "#fff", 700));
+    const defs = ["#ff5252", "#29b6f6"].map(c =>
+      `<marker id="ah_${c.slice(1)}" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="3" markerHeight="3" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="${c}"/></marker>`).join("");
+    el.innerHTML =
+      `<svg viewBox="0 0 ${W} ${W}" style="width:100%;max-width:360px;display:block;margin:6px auto 0" role="img" aria-label="周囲の地形">` +
+      `<defs>${defs}</defs><g transform="rotate(${rot} ${C} ${C})">${g}</g></svg>` +
+      `<div style="display:flex;align-items:center;gap:8px;justify-content:center;font-size:14px;margin-top:4px">` +
+      `<span>低い</span><span style="width:120px;height:10px;border-radius:5px;background:linear-gradient(90deg,rgb(30,136,229),rgb(52,62,74),rgb(176,125,80))"></span><span>高い</span></div>` +
+      `<div style="text-align:center;font-size:14px;margin-top:2px">` +
+      (terData.pool ? `<span style="color:#ff5252">➡ 赤い矢印：周りから水が集まってくる</span>`
+                    : `<span style="color:#29b6f6">➡ 青い矢印：水が流れていく向き（低い方）</span>`) + `</div>`;
+  }
+  function onOrient(e) {
+    let h = null;
+    if (typeof e.webkitCompassHeading === "number") h = e.webkitCompassHeading;   // iPhone
+    else if (e.absolute && e.alpha != null) h = (360 - e.alpha) % 360;             // Android
+    if (h == null) return;
+    if (headingRaw == null) headingRaw = h;
+    let d = h - headingRaw; d = ((d + 540) % 360) - 180; headingRaw += d * 0.25;    // なめらかに
+    heading = (headingRaw + 360) % 360;
+    if (!drawPending) { drawPending = true; requestAnimationFrame(() => { drawPending = false; renderTerrainMap(); }); }
+  }
+  async function toggleCompass() {
+    if (compassOn) {
+      compassOn = false;
+      window.removeEventListener("deviceorientationabsolute", onOrient);
+      window.removeEventListener("deviceorientation", onOrient);
+    } else {
+      try {
+        if (typeof DeviceOrientationEvent !== "undefined" && typeof DeviceOrientationEvent.requestPermission === "function") {
+          if (await DeviceOrientationEvent.requestPermission() !== "granted") { alert("コンパスの使用が許可されませんでした"); return; }
+        }
+      } catch (e) { return; }
+      compassOn = true; headingRaw = null;
+      if ("ondeviceorientationabsolute" in window) window.addEventListener("deviceorientationabsolute", onOrient);
+      else window.addEventListener("deviceorientation", onOrient);
+    }
+    const b = document.getElementById("btnCompass");
+    if (b) b.textContent = compassOn ? "コンパス：オン（北を上に戻す）" : "コンパスで向きを合わせる";
+    renderTerrainMap();
+  }
+
   async function updateTerrain(p) {
     if (terBusy || (terAt && dist(terAt, p) < 30)) return;
     terBusy = true; terAt = p;
@@ -416,11 +509,17 @@
       else if (higher >= ok.length - 2 && diff <= -0.3) { level = "周囲より低め"; color = "#ffd8c0"; }
       else if (higher <= 2 && diff >= 0.3) { level = "周囲より高い"; color = "#81c784"; }
       else { level = "平坦または斜面"; color = "#9aa0a6"; }
+      terData = { c, cells: offs.map(([a, b], i) => ({ row: 1 - a, col: b + 1, v: nb[i], name: names[i] })),
+                  low, pool: (level === "窪地・要注意") || (low[0] - c > 0.1) };
       $("terrain").innerHTML =
         `<div class="risk"><span>内水（地形・計算値）</span><span class="v" style="color:${color}">${level}</span></div>` +
+        `<div id="terrainMap"></div>` +
+        `<div class="row" style="margin:6px 0 8px"><button id="btnCompass" type="button">${compassOn ? "コンパス：オン（北を上に戻す）" : "コンパスで向きを合わせる"}</button></div>` +
         `周囲8点（100 m四方）の平均より <b>${diff >= 0 ? "+" : ""}${diff.toFixed(1)} m</b>、` +
         `自分より高い点 <b>${higher}/${ok.length}</b>、周囲でいちばん低いのは${low[1]}（${(low[0] - c >= 0 ? "+" : "") + (low[0] - c).toFixed(1)} m）` +
         `<br><span style="font-size:14px">※地形だけからの目安です。下水の能力や過去の浸水実績は反映していません。</span>`;
+      $("btnCompass").onclick = toggleCompass;
+      renderTerrainMap();
     } catch (e) { terAt = null; $("terrain").innerHTML = "周囲の地形：標高データを取得できません"; }
     terBusy = false;
   }

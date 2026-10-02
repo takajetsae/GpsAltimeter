@@ -210,6 +210,7 @@
         <li><b>周囲より高い</b>：水が集まりにくい地形。</li>
       </ul>
       <p><b>絵の見方</b>：真ん中の白いマスが現在地です。周りの8マスは自分との高さの差で、<span style="color:#29b6f6">青いほど低く</span>、<span style="color:#b07d50">茶色いほど高い</span>ことを表します。<b>青い矢印</b>は水が流れていく向き（いちばん低い方）、<b>赤い矢印</b>は周りから水が集まってくる（窪地）ことを表します。赤丸の「N」が北です。</p>
+      <p><b>コンパスがずれるとき</b>：スマホを空中で大きく<b>8の字</b>に数回振ると、電子コンパスが調整されます。鉄骨の建物の中、車の中、金属の机やスピーカー・磁石付きケースの近くでは大きくずれます。屋外で、スマホをなるべく水平に持つと正確になります。歩いているとき（秒速1 m以上）は、GPSの進行方向を使って向きを決めます。磁北と真北のずれ（日本では約5〜9°）は自動で補正しています。</p>
       <p>「<b>コンパスで向きを合わせる</b>」を押すと、スマホを水平に持ったときの画面の上方向が、実際の前方向と一致するように絵が回転します（iPhoneは最初に許可が必要です）。</p>
       <p class="sub">あくまで地形からの目安です。実際の内水氾濫は下水道の能力や水路の位置にも左右されます。市町村の内水ハザードマップがある地域では、そちらを優先してください。</p>
 
@@ -472,19 +473,44 @@
       `<defs>${defs}</defs><g transform="rotate(${rot} ${C} ${C})">${g}</g></svg>` +
       `<div style="display:flex;align-items:center;gap:8px;justify-content:center;font-size:14px;margin-top:4px">` +
       `<span>低い</span><span style="width:120px;height:10px;border-radius:5px;background:linear-gradient(90deg,rgb(30,136,229),rgb(52,62,74),rgb(176,125,80))"></span><span>高い</span></div>` +
+      (compassOn ? `<div style="text-align:center;font-size:15px;margin-top:4px">向き ${Math.round(heading)}°（${headingSrc || "待機中"}・真北補正済み）` +
+        (compassAcc != null && compassAcc > 20 ? `<br><span style="color:#ffb74d">精度が低めです（±${Math.round(compassAcc)}°）。スマホを8の字に振ってください</span>` : "") + `</div>` : "") +
       `<div style="text-align:center;font-size:14px;margin-top:2px">` +
       (terData.pool ? `<span style="color:#ff5252">➡ 赤い矢印：周りから水が集まってくる</span>`
                     : `<span style="color:#29b6f6">➡ 青い矢印：水が流れていく向き（低い方）</span>`) + `</div>`;
   }
-  function onOrient(e) {
-    let h = null;
-    if (typeof e.webkitCompassHeading === "number") h = e.webkitCompassHeading;   // iPhone
-    else if (e.absolute && e.alpha != null) h = (360 - e.alpha) % 360;             // Android
-    if (h == null) return;
+  // 偏角（磁北と真北のずれ、西偏を正、度）：日本付近の近似式
+  function declinationWest(lat, lon) { return 7.6 + 0.35 * (lat - 37) - 0.13 * (lon - 138); }
+  // 傾き補正付きの方位（W3C DeviceOrientation 仕様の計算例）
+  function tiltHeading(alpha, beta, gamma) {
+    const r = Math.PI / 180, x = beta * r, y = gamma * r, z = alpha * r;
+    const cX = Math.cos(x), cY = Math.cos(y), cZ = Math.cos(z), sX = Math.sin(x), sY = Math.sin(y), sZ = Math.sin(z);
+    const Vx = -cZ * sY - sZ * sX * cY, Vy = -sZ * sY + cZ * sX * cY;
+    let h = Math.atan(Vx / Vy);
+    if (Vy < 0) h += Math.PI; else if (Vx < 0) h += 2 * Math.PI;
+    return h / r;
+  }
+  let headingSrc = "", compassAcc = null;
+  function setHeading(h, src) {
     if (headingRaw == null) headingRaw = h;
-    let d = h - headingRaw; d = ((d + 540) % 360) - 180; headingRaw += d * 0.25;    // なめらかに
-    heading = (headingRaw + 360) % 360;
+    let d = h - headingRaw; d = ((d + 540) % 360) - 180; headingRaw += d * 0.2;    // なめらかに
+    heading = (headingRaw + 360) % 360; headingSrc = src;
     if (!drawPending) { drawPending = true; requestAnimationFrame(() => { drawPending = false; renderTerrainMap(); }); }
+  }
+  function onOrient(e) {
+    // 歩いている（1 m/s以上）ときは GPS の進行方向を優先
+    if (last && last.course != null && last.speed != null && last.speed >= 1 && Date.now() - last.t < 3000) {
+      setHeading(last.course, "GPSの進行方向"); return;
+    }
+    let h = null;
+    if (typeof e.webkitCompassHeading === "number") {                       // iPhone（磁北基準）
+      h = e.webkitCompassHeading; compassAcc = e.webkitCompassAccuracy;
+    } else if (e.absolute && e.alpha != null) {                              // Android（磁北基準）
+      h = (e.beta != null && e.gamma != null) ? tiltHeading(e.alpha, e.beta, e.gamma) : (360 - e.alpha) % 360;
+    }
+    if (h == null || isNaN(h)) return;
+    if (last) h -= declinationWest(last.lat, last.lon);                      // 磁北 → 真北
+    setHeading((h + 360) % 360, "電子コンパス");
   }
   async function toggleCompass() {
     if (compassOn) {
@@ -546,7 +572,8 @@
   function onPos(pos) {
     const c = pos.coords;
     last = { t: pos.timestamp, lat: c.latitude, lon: c.longitude, h: c.altitude,
-             hAcc: c.accuracy, vAcc: c.altitudeAccuracy, speed: c.speed };
+             hAcc: c.accuracy, vAcc: c.altitudeAccuracy, speed: c.speed,
+             course: (c.heading == null || isNaN(c.heading)) ? null : c.heading };
     const p = { lat: c.latitude, lon: c.longitude };
     updateGeoid(p); updateDem(p); updateHazard(p); updateTerrain(p);
   }

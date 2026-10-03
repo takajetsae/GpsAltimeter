@@ -211,6 +211,7 @@
       </ul>
       <p><b>絵の見方</b>：真ん中の白いマスが現在地です。周りの8マスは自分との高さの差で、<span style="color:#29b6f6">青いほど低く</span>、<span style="color:#b07d50">茶色いほど高い</span>ことを表します。<b>青い矢印</b>は水が流れていく向き（いちばん低い方）、<b>赤い矢印</b>は周りから水が集まってくる（窪地）ことを表します。赤丸の「N」が北です。</p>
       <p><b>コンパスがずれるとき</b>：スマホを空中で大きく<b>8の字</b>に数回振ると、電子コンパスが調整されます。鉄骨の建物の中、車の中、金属の机やスピーカー・磁石付きケースの近くでは大きくずれます。屋外で、スマホをなるべく水平に持つと正確になります。歩いているとき（秒速1 m以上）は、GPSの進行方向を使って向きを決めます。磁北と真北のずれ（日本では約5〜9°）は自動で補正しています。</p>
+      <p><b>大きく（数十度以上）ずれるとき</b>：コンパスをオンにしたまま、<b>まっすぐな道を20〜30秒歩いて</b>ください。GPSの進行方向と比べて、ずれ（「ずれ補正」）を自動で覚えます。覚えた値は次回も使われます。「−10°／＋10°」で手動でも合わせられ、「補正リセット」で元に戻せます。磁石付きのスマホケースや、マグネット式のリング・スタンドは、ずれの大きな原因になります。</p>
       <p>「<b>コンパスで向きを合わせる</b>」を押すと、スマホを水平に持ったときの画面の上方向が、実際の前方向と一致するように絵が回転します（iPhoneは最初に許可が必要です）。</p>
       <p class="sub">あくまで地形からの目安です。実際の内水氾濫は下水道の能力や水路の位置にも左右されます。市町村の内水ハザードマップがある地域では、そちらを優先してください。</p>
 
@@ -474,6 +475,9 @@
       `<div style="display:flex;align-items:center;gap:8px;justify-content:center;font-size:14px;margin-top:4px">` +
       `<span>低い</span><span style="width:120px;height:10px;border-radius:5px;background:linear-gradient(90deg,rgb(30,136,229),rgb(52,62,74),rgb(176,125,80))"></span><span>高い</span></div>` +
       (compassOn ? `<div style="text-align:center;font-size:15px;margin-top:4px">向き ${Math.round(heading)}°（${headingSrc || "待機中"}・真北補正済み）` +
+        `<br>ずれ補正 ${compassOffset >= 0 ? "+" : ""}${Math.round(compassOffset)}°` + (offsetSamples > 0 && offsetSamples < 10 ? "（学習中）" : "") +
+        `<div class="row" style="margin-top:6px"><button type="button" onclick="adjustOffset(-10)">−10°</button><button type="button" onclick="adjustOffset(10)">＋10°</button><button type="button" onclick="adjustOffset(0)">補正リセット</button></div>` +
+        `<span style="font-size:13px">センサー：${orientSrc || "なし"}</span>` +
         (compassAcc != null && compassAcc > 20 ? `<br><span style="color:#ffb74d">精度が低めです（±${Math.round(compassAcc)}°）。スマホを8の字に振ってください</span>` : "") + `</div>` : "") +
       `<div style="text-align:center;font-size:14px;margin-top:2px">` +
       (terData.pool ? `<span style="color:#ff5252">➡ 赤い矢印：周りから水が集まってくる</span>`
@@ -497,21 +501,44 @@
     heading = (headingRaw + 360) % 360; headingSrc = src;
     if (!drawPending) { drawPending = true; requestAnimationFrame(() => { drawPending = false; renderTerrainMap(); }); }
   }
+  // コンパスのずれ（オフセット）：歩行中にGPSの進行方向と比べて自動学習。手動調整も可
+  let compassOffset = 0, offsetSamples = 0, compassRaw = null, orientSrc = "";
+  try { compassOffset = parseFloat(localStorage.getItem("compassOffset")) || 0; offsetSamples = compassOffset ? 10 : 0; } catch (e) {}
+  const wrap = d => ((d + 540) % 360) - 180;
+  function saveOffset() { try { localStorage.setItem("compassOffset", String(compassOffset)); } catch (e) {} }
+  function learnOffset() {
+    if (compassRaw == null || !last || last.course == null || last.speed == null || last.speed < 1.2) return;
+    if (Date.now() - last.t > 3000 || (last.hAcc != null && last.hAcc > 20)) return;
+    const d = wrap(last.course - compassRaw);                     // 本来足すべき量
+    const k = offsetSamples < 10 ? 0.3 : 0.05;
+    compassOffset = wrap(compassOffset + wrap(d - compassOffset) * k);
+    offsetSamples++; if (offsetSamples % 5 === 0) saveOffset();
+  }
   function onOrient(e) {
+    let h = null;
+    if (typeof e.webkitCompassHeading === "number") {                       // iPhone（磁北基準）
+      h = e.webkitCompassHeading; compassAcc = e.webkitCompassAccuracy; orientSrc = "iOS";
+    } else if (e.absolute && e.alpha != null) {                              // Android（磁北基準）
+      // 水平に近い（前後の傾き45°未満）ときは「画面の上側」の向き、立てているときは「背面カメラ」の向き
+      h = (e.beta != null && e.gamma != null && Math.abs(e.beta) >= 45) ? tiltHeading(e.alpha, e.beta, e.gamma)
+                                                                          : (360 - e.alpha) % 360;
+      orientSrc = e.type;
+    }
+    if (h == null || isNaN(h)) return;
+    if (last) h -= declinationWest(last.lat, last.lon);                      // 磁北 → 真北
+    compassRaw = (h + 360) % 360;
+    learnOffset();
     // 歩いている（1 m/s以上）ときは GPS の進行方向を優先
     if (last && last.course != null && last.speed != null && last.speed >= 1 && Date.now() - last.t < 3000) {
       setHeading(last.course, "GPSの進行方向"); return;
     }
-    let h = null;
-    if (typeof e.webkitCompassHeading === "number") {                       // iPhone（磁北基準）
-      h = e.webkitCompassHeading; compassAcc = e.webkitCompassAccuracy;
-    } else if (e.absolute && e.alpha != null) {                              // Android（磁北基準）
-      h = (e.beta != null && e.gamma != null) ? tiltHeading(e.alpha, e.beta, e.gamma) : (360 - e.alpha) % 360;
-    }
-    if (h == null || isNaN(h)) return;
-    if (last) h -= declinationWest(last.lat, last.lon);                      // 磁北 → 真北
-    setHeading((h + 360) % 360, "電子コンパス");
+    setHeading((compassRaw + compassOffset + 360) % 360, "電子コンパス");
   }
+  function adjustOffset(d) {
+    if (d === 0) { compassOffset = 0; offsetSamples = 0; } else { compassOffset = wrap(compassOffset + d); offsetSamples = Math.max(offsetSamples, 10); }
+    saveOffset(); headingRaw = null; renderTerrainMap();
+  }
+  window.adjustOffset = adjustOffset;
   async function toggleCompass() {
     if (compassOn) {
       compassOn = false;

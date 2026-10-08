@@ -51,6 +51,17 @@
   </div>
 
   <div class="card">
+    <div class="label">⓪ 使うイヤホン</div>
+    <div class="row">
+      <select id="out">
+        <option value="wired">有線（イヤホンジャック・USB-C変換）</option>
+        <option value="bt">Bluetooth（ワイヤレス）</option>
+      </select>
+    </div>
+    <div class="detail" id="outNote" style="margin-top:6px"></div>
+  </div>
+
+  <div class="card">
     <div class="label">① 準備（音量合わせ）</div>
     <div class="detail">「確認音」を押すと両耳に1 kHzの音が鳴ります。<b>普通の会話より少し小さいくらいで、はっきり聞こえる</b>大きさになるよう、スマホの音量を調整してください（多くの機種でメディア音量の半分前後）。測定中は音量を変えないでください。次回比べるために、音量バーの位置をメモしておくと確実です。</div>
     <div class="row" style="margin-top:8px">
@@ -131,10 +142,29 @@
   const MIN_DB = -100, MAX_DB = -12;                  // 出力レベルの上下限（dBFS）
   let ctx = null, wakeLock = null;
   let running = false, waiting = false, pressed = false, falseAlarms = 0;
-  let res = { R: {}, L: {} }, prev = null, high = null;
-  try { const s = JSON.parse(localStorage.getItem("hearing") || "null"); if (s) { prev = s.prev || null; res = s.last || res; high = s.high ?? null; } } catch (e) {}
+  let res = { R: {}, L: {} }, prev = null, high = null, prevMode = null, lastMode = null;
+  try { const s = JSON.parse(localStorage.getItem("hearing") || "null"); if (s) { prev = s.prev || null; res = s.last || res; high = s.high ?? null; prevMode = s.prevMode || null; lastMode = s.mode || null; } } catch (e) {}
 
   const amp = d => Math.pow(10, d / 20);
+  // ---------- 出力の種類 ----------
+  try { const m = localStorage.getItem("hearingOut"); if (m) $("out").value = m; } catch (e) {}
+  const isBT = () => $("out").value === "bt";
+  function outNote() {
+    $("outNote").innerHTML = isBT()
+      ? "Bluetoothモード：押せる時間を長めにし、イヤホンが省電力で音を止めないよう、聞こえないほど小さな低い音（30 Hz）を流し続けます。高音の上限は低めに出ることがあります。"
+      : "有線モード：いちばん正確に測れます。";
+  }
+  $("out").onchange = () => { try { localStorage.setItem("hearingOut", $("out").value); } catch (e) {} outNote(); };
+  outNote();
+  // Bluetoothの省電力による無音カットを防ぐ、聞こえない低レベルの30 Hz
+  let keep = null;
+  function keepAlive(on) {
+    if (on && isBT() && !keep) {
+      const c = audio(), o = c.createOscillator(), g = c.createGain();
+      o.frequency.value = 30; g.gain.value = amp(-60); o.connect(g).connect(c.destination); o.start();
+      keep = { o, g };
+    } else if (!on && keep) { keep.o.stop(); keep = null; }
+  }
   const sleep = ms => new Promise(r => setTimeout(r, ms));
   function audio() {
     if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)();
@@ -152,12 +182,12 @@
   }
 
   // ---------- 準備 ----------
-  $("btnCal").onclick = () => { tone(1000, -30, "B", 1.5); };
+  $("btnCal").onclick = async () => { keepAlive(true); if (isBT()) await sleep(800); tone(1000, -30, "B", 1.5); await sleep(2000); if (!running) keepAlive(false); };
   $("btnLR").onclick = async () => {
-    $("btnLR").disabled = true;
+    $("btnLR").disabled = true; keepAlive(true); if (isBT()) await sleep(800);
     $("btnLR").textContent = "右耳…"; tone(1000, -30, "R", 0.8); await sleep(1100);
     $("btnLR").textContent = "左耳…"; tone(1000, -30, "L", 0.8); await sleep(1100);
-    $("btnLR").textContent = "左右確認"; $("btnLR").disabled = false;
+    $("btnLR").textContent = "左右確認"; $("btnLR").disabled = false; if (!running) keepAlive(false);
   };
 
   // ---------- 聞こえたボタン ----------
@@ -175,7 +205,7 @@
     if (!running) return false;
     pressed = false; waiting = true;
     tone(f, db, ear, 0.6);
-    await sleep(600 + 1400);                           // Bluetoothの遅れも見込んで受付を長めに
+    await sleep(600 + (isBT() ? 2000 : 1200));         // Bluetoothは遅れを見込んで受付を長めに
     waiting = false;
     return pressed;
   }
@@ -197,7 +227,8 @@
     if (running) { running = false; return; }
     audio();
     try { wakeLock = await navigator.wakeLock?.request("screen"); } catch (e) {}
-    running = true; falseAlarms = 0;
+    running = true; falseAlarms = 0; keepAlive(true);
+    if (isBT()) await sleep(1500);                      // イヤホンが起きるのを待つ
     $("btnStart").textContent = "中止"; $("btnHeard").disabled = false; $("btnHigh").disabled = true;
     const list = SETS[$("set").value], newRes = { R: {}, L: {} };
     const total = list.length * 2; let n = 0;
@@ -213,12 +244,12 @@
         res = newRes; draw(); table();
       }
     }
-    const done = running; running = false;
+    const done = running; running = false; keepAlive(false);
     $("btnStart").textContent = "測定開始"; $("btnHeard").disabled = true; $("btnHigh").disabled = false;
     try { wakeLock?.release(); } catch (e) {}
     if (done) {
       let saved = {}; try { saved = JSON.parse(localStorage.getItem("hearing") || "{}"); } catch (e) {}
-      prev = saved.last && Object.keys(saved.last.R || {}).length ? saved.last : prev;
+      if (saved.last && Object.keys(saved.last.R || {}).length) { prev = saved.last; prevMode = saved.mode || null; }
       save();
       $("status").innerHTML = "測定が終わりました。" + (falseAlarms > 3 ? `<br>音が鳴っていない時の押し間違いが ${falseAlarms} 回ありました。静かな場所で測り直すと精度が上がります。` : "");
     } else $("status").textContent = "中止しました。";
@@ -230,12 +261,13 @@
   $("btnHigh").onclick = () => {
     const c = audio();
     if (hiRun) {                                        // 聞こえなくなった
-      const f = hiRun.cur(); hiRun.stop(); hiRun = null;
+      const f = hiRun.cur(); hiRun.stop(); hiRun = null; keepAlive(false);
       high = Math.round(f); save();
       $("btnHigh").textContent = "開始"; $("highNow").textContent = "";
       $("highRes").innerHTML = `聞こえた上限：<b style="font-size:20px">約 ${(high / 1000).toFixed(1)} kHz</b>（このスマホの上限は ${(c.sampleRate / 2000).toFixed(1)} kHz）`;
       $("btnStart").disabled = false; comment(); return;
     }
+    keepAlive(true);
     const o = c.createOscillator(), g = c.createGain(), f0 = 8000, f1 = Math.min(20000, c.sampleRate * 0.45), T = 40;
     const t0 = c.currentTime;
     o.frequency.setValueAtTime(f0, t0); o.frequency.exponentialRampToValueAtTime(f1, t0 + T);
@@ -251,7 +283,7 @@
   };
 
   // ---------- 保存・表示 ----------
-  function save() { try { localStorage.setItem("hearing", JSON.stringify({ last: res, prev, high, date: new Date().toISOString() })); } catch (e) {} $("btnCsv").disabled = !Object.keys(res.R).length; }
+  function save() { try { localStorage.setItem("hearing", JSON.stringify({ last: res, prev, high, mode: $("out").value, prevMode, date: new Date().toISOString() })); } catch (e) {} $("btnCsv").disabled = !Object.keys(res.R).length; }
   const fmt = f => f >= 1000 ? (f / 1000) + " kHz" : f + " Hz";
   const freqsOf = r => [...new Set([...Object.keys(r.R || {}), ...Object.keys(r.L || {})].map(Number))].sort((a, b) => a - b);
 
@@ -271,6 +303,7 @@
     const none = fs.filter(f => res.R[f] === null || res.L[f] === null);
     if (none.length) msgs.push(`最大音量でも聞こえなかった周波数：${none.map(fmt).join("、")}（イヤホンが出せていない可能性もあります）。`);
     if (high) msgs.push(`高音の上限は約 ${(high / 1000).toFixed(1)} kHz でした。`);
+    if (prev && prevMode && prevMode !== $("out").value) msgs.push("※前回（点線）は別の種類のイヤホンで測った結果なので、そのままは比べられません。");
     $("comment").textContent = msgs.join(" ");
   }
 

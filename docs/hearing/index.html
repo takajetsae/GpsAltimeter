@@ -112,7 +112,8 @@
       <ul>
         <li>静かな部屋で、エアコンや換気扇を止める。</li>
         <li>毎回<b>同じイヤホン・同じ音量</b>で測ると、経年変化を比べられます（結果はこのスマホに保存）。</li>
-        <li>ノイズキャンセリングはオフ、イコライザーや音質補正（Dolby等）もオフに。Bluetoothは遅延があるので有線がおすすめです。</li>
+        <li>ノイズキャンセリングはオフ、イコライザーや音質補正（Dolby等）もオフに。</li>
+        <li><b>Bluetoothイヤホンは不向き</b>です。音の遅れに加え、無音が続くと省電力で音が止まり、短い「ピッ」の頭が欠けたり聞こえなかったりします。圧縮で高音も削られます。できるだけ有線（USB-C変換アダプタ経由も可）で測ってください。</li>
       </ul>
       <p class="sub" style="color:var(--sub)">聞こえにくさ・耳鳴り・耳の詰まり感などがある場合は、このアプリの結果にかかわらず耳鼻科を受診してください。</p>
     </div>
@@ -174,7 +175,7 @@
     if (!running) return false;
     pressed = false; waiting = true;
     tone(f, db, ear, 0.6);
-    await sleep(600 + 900);
+    await sleep(600 + 1400);                           // Bluetoothの遅れも見込んで受付を長めに
     waiting = false;
     return pressed;
   }

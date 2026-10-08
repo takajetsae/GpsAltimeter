@@ -147,6 +147,12 @@
         <li>「dB re total」は曲（パート）全体のエネルギーに対する割合で、音量の違いを除いた<b>音色の形</b>を比べるためのものです。</li>
         <li>自分のDAWの曲をライブラリに入れて、好きな曲の平均と比べるとミックスの参考になります。</li>
       </ul>
+      <h3>テンポ・キー</h3>
+      <ul>
+        <li><b>テンポ（BPM）</b>：音の立ち上がりの周期から推定します。倍・半分（例：140と70）に間違えることがあるので、70〜180の範囲に寄せて表示しています。</li>
+        <li><b>キー</b>：12音の強さの分布を、長調・短調の典型的な分布と照らし合わせて推定します。平行調（例：C major と A minor）は同じ音を使うため取り違えやすく、「推定弱め」と出たらその可能性があります。</li>
+        <li>パートごとのキーが曲全体と違うと「転調？」と表示します（ラストサビの半音上げなど）。</li>
+      </ul>
       <h3>ラウドネス（LUFS）</h3>
       <p>人の耳の感じ方に合わせた音量の国際規格（ITU-R BS.1770）の値です。YouTubeやSpotifyなどは約 −14 LUFS を目安に音量をそろえるため、それより大きい曲は再生時に下げられます。</p>
       <p style="color:var(--sub);font-size:15px">マイクで拾う場合は、スピーカー・部屋・マイクの特性が混ざります。音源そのものの特性を見たいときはファイルかタブ取り込みを使ってください。</p>
@@ -254,6 +260,9 @@
     const re = new Float64Array(N), im = new Float64Array(N), p = new Float64Array(N / 2), hop = N / 2;
     const total = Math.max(1, Math.floor((L - N) / hop) + 1);
     const nSec = Math.ceil(L / fs), secPow = Array.from({ length: nSec }, () => new Float64Array(THIRD.length)), secCnt = new Float64Array(nSec);
+    const secChroma = Array.from({ length: nSec }, () => new Float64Array(12));
+    const pcOf = new Int8Array(N / 2).fill(-1);
+    for (let i = 1; i < N / 2; i++) { const f = i * fs / N; if (f >= 55 && f <= 4200) pcOf[i] = ((Math.round(12 * Math.log2(f / 440)) + 9) % 12 + 12) % 12; }
     const ranges = THIRD.map(fc => [Math.max(1, Math.ceil(fc / Math.pow(2, 1 / 6) / fs * N)), Math.min(N / 2 - 1, Math.floor(fc * Math.pow(2, 1 / 6) / fs * N))]);
     for (let f = 0, pos = 0; pos + N <= L || f === 0; f++, pos += hop) {
       for (let i = 0; i < N; i++) { re[i] = (mono[pos + i] || 0) * win[i]; im[i] = 0; }
@@ -261,7 +270,8 @@
       for (let i = 0; i < N / 2; i++) p[i] = (re[i] * re[i] + im[i] * im[i]) * 4 / (wsum2 * N);
       addFrame(p);
       { const sc = Math.min(nSec - 1, Math.floor((pos + N / 2) / fs)); secCnt[sc]++;
-        ranges.forEach(([a, b], k) => { let t = 0; for (let i = a; i <= b; i++) t += p[i]; secPow[sc][k] += t; }); }
+        ranges.forEach(([a, b], k) => { let t = 0; for (let i = a; i <= b; i++) t += p[i]; secPow[sc][k] += t; });
+        for (let i = 1; i < N / 2; i++) if (pcOf[i] >= 0) secChroma[sc][pcOf[i]] += Math.sqrt(p[i]); }
       if (f % 200 === 0) { $("status").textContent = `分析中：${Math.round(100 * f / total)}%`; await new Promise(r => setTimeout(r)); }
       if (pos + N > L) break;
     }
@@ -269,7 +279,12 @@
     $("status").textContent = "ラウドネス計算中…"; await new Promise(r => setTimeout(r));
     const loud = loudness(buf);
     lastLufs = loud.integrated;
+    $("status").textContent = "テンポ・キーを推定中…"; await new Promise(r => setTimeout(r));
+    const tempo = estimateTempo(mono, fs);
     const song = makeSong(file.name, L / fs, fs, secPow, secCnt, loud, peakAbs, Math.sqrt(sumSq / nSamp));
+    song.chroma = secChroma.map(row => { const m = Math.max(...row) || 1; return Array.from(row, v => Math.round(100 * v / m)); });
+    song.bpm = tempo.bpm; song.bpmConf = tempo.conf;
+    const k = songKey(song); song.key = k.name; song.keyJp = k.jp; song.keyConf = k.conf; song.mode = k.mode;
     mode = null; setUI();
     onSong(song, URL.createObjectURL(file));
     $("status").textContent = `分析完了：${file.name}（${Math.floor(seconds / 60)}分${Math.round(seconds % 60)}秒、${(fs / 1000).toFixed(1)} kHz）`;
@@ -305,6 +320,7 @@
       `<div>重心周波数<br><b>${fmtF(r.centroid)}</b></div>` +
       `<div>高音の上限（−60 dB）<br><b>${fmtF(r.upper)}</b></div>` +
       `<div>集計時間<br><b>${Math.round(seconds)} 秒</b></div>` +
+      (cur && mode === null && lastLufs != null && cur.bpm ? `<div>テンポ<br><b>${cur.bpm.toFixed(0)} BPM</b>${cur.bpmConf < 1.6 ? '<span style="font-size:12px">（推定弱め）</span>' : ""}</div><div>キー<br><b>${cur.key}</b><span style="font-size:12px">（${cur.keyJp}${cur.keyConf < 0.05 ? "・推定弱め" : ""}）</span></div>` : "") +
       (lastLufs != null ? `<div>ラウドネス<br><b>${lastLufs.toFixed(1)} LUFS</b></div><div>配信基準との差<br><b>${(lastLufs + 14).toFixed(1)} dB</b><span style="font-size:12px">（−14 LUFS比）</span></div>` : "") +
       (digital ? `<div>ピーク／RMS<br><b>${(20 * Math.log10(peakAbs + 1e-12)).toFixed(1)} / ${(20 * Math.log10(rms + 1e-12)).toFixed(1)} dBFS</b></div>` +
                  `<div>クレストファクタ<br><b>${(20 * Math.log10((peakAbs + 1e-12) / (rms + 1e-12))).toFixed(1)} dB</b></div>` : "");
@@ -378,6 +394,87 @@
   }
 
 
+
+  // =====================================================================
+  //  テンポ（BPM）：スペクトルフラックス → 自己相関
+  // =====================================================================
+  function estimateTempo(x, sr) {
+    const n = 1024, hop = 512, win = new Float32Array(n);
+    for (let i = 0; i < n; i++) win[i] = 0.5 - 0.5 * Math.cos(2 * Math.PI * i / (n - 1));
+    const re = new Float64Array(n), im = new Float64Array(n), maxBin = Math.min(n / 2, Math.round(8000 / sr * n));
+    let prev = new Float64Array(maxBin), env = [];
+    for (let pos = 0; pos + n <= x.length; pos += hop) {
+      for (let i = 0; i < n; i++) { re[i] = x[pos + i] * win[i]; im[i] = 0; }
+      fft(re, im);
+      let fl = 0;
+      for (let b = 1; b < maxBin; b++) { const m = Math.log(1 + 1000 * Math.hypot(re[b], im[b])); const d = m - prev[b]; if (d > 0) fl += d; prev[b] = m; }
+      env.push(fl);
+    }
+    const M = env.length; if (M < 200) return { bpm: null, conf: 0 };
+    // 局所平均を引いて立ち上がりだけ残す
+    const W = 16, e = new Float64Array(M);
+    for (let i = 0; i < M; i++) { let t = 0, c = 0; for (let j = Math.max(0, i - W); j < Math.min(M, i + W); j++) { t += env[j]; c++; } e[i] = Math.max(0, env[i] - t / c); }
+    const hs = hop / sr, lagMin = Math.floor(60 / 220 / hs), lagMax = Math.ceil(60 / 50 / hs);
+    const ac = new Float64Array(lagMax + 2);
+    for (let lag = lagMin - 1; lag <= lagMax + 1; lag++) { let t = 0; for (let i = 0; i + lag < M; i++) t += e[i] * e[i + lag]; ac[lag] = t / (M - lag); }
+    let best = -1, bestV = -Infinity, sum = 0, cnt = 0;
+    for (let lag = lagMin; lag <= lagMax; lag++) {
+      const bpm = 60 / (lag * hs), w = Math.exp(-0.5 * Math.pow(Math.log2(bpm / 120) / 0.9, 2));
+      const v = ac[lag] * w; sum += v; cnt++;
+      if (v > bestV) { bestV = v; best = lag; }
+    }
+    // 4拍分（4倍のラグ）付近のピークで細かく求め直す（分解能を4倍に）
+    const acAt = lag => { let t = 0; for (let i = 0; i + lag < M; i++) t += e[i] * e[i + lag]; return t / (M - lag); };
+    let lag4 = best * 4, v4 = -Infinity, pk = lag4;
+    for (let l = lag4 - 4; l <= lag4 + 4; l++) { if (l + 2 >= M) break; const v = acAt(l); if (v > v4) { v4 = v; pk = l; } }
+    const a = acAt(pk - 1), b = acAt(pk), c = acAt(pk + 1), d = (a - c) / (2 * (a - 2 * b + c) || 1);
+    let bpm = 60 / ((pk + (Math.abs(d) < 1 ? d : 0)) / 4 * hs);
+    while (bpm < 70) bpm *= 2; while (bpm > 180) bpm /= 2;
+    return { bpm: Math.round(bpm * 10) / 10, conf: bestV / (sum / cnt) };
+  }
+
+  // =====================================================================
+  //  キー：クロマ（12音の強さ）× Krumhansl–Kessler プロファイル
+  // =====================================================================
+  const KMAJ = [6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88];
+  const KMIN = [6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17];
+  const NMAJ = ["C", "D♭", "D", "E♭", "E", "F", "F♯", "G", "A♭", "A", "B♭", "B"];
+  const NMIN = ["C", "C♯", "D", "E♭", "E", "F", "F♯", "G", "G♯", "A", "B♭", "B"];
+  const JMAJ = ["ハ", "変ニ", "ニ", "変ホ", "ホ", "ヘ", "嬰ヘ", "ト", "変イ", "イ", "変ロ", "ロ"];
+  const JMIN = ["ハ", "嬰ハ", "ニ", "変ホ", "ホ", "ヘ", "嬰ヘ", "ト", "嬰ト", "イ", "変ロ", "ロ"];
+  function corr12(a, b) {
+    const ma = a.reduce((t, v) => t + v, 0) / 12, mb = b.reduce((t, v) => t + v, 0) / 12;
+    let n = 0, da = 0, db = 0; for (let i = 0; i < 12; i++) { n += (a[i] - ma) * (b[i] - mb); da += (a[i] - ma) ** 2; db += (b[i] - mb) ** 2; }
+    return n / Math.sqrt(da * db + 1e-12);
+  }
+  function sumChroma(song, a, b) {
+    const c = new Array(12).fill(0); if (!song.chroma) return null;
+    for (let s = Math.floor(a); s < Math.min(song.chroma.length, Math.ceil(b)); s++) song.chroma[s].forEach((v, i) => c[i] += v);
+    return c;
+  }
+  // 曲のキー：10秒ずつの窓で推定し、一番長く続いたキーを採用（転調があっても主調を選ぶ）
+  function songKey(song) {
+    const T = song.chroma.length, votes = {};
+    for (let a = 0; a < Math.max(1, T - 5); a += 5) {
+      const k = keyOf(sumChroma(song, a, Math.min(T, a + 10))); if (k.name === "—") continue;
+      votes[k.name] = votes[k.name] || { k, w: 0 }; votes[k.name].w += 1 + Math.min(1, k.conf * 10);
+    }
+    const all = keyOf(sumChroma(song, 0, T)), top = Object.values(votes).sort((a, b) => b.w - a.w)[0];
+    return top ? { ...top.k, conf: Math.max(top.k.conf, 0) * (top.w / Object.values(votes).reduce((t, v) => t + v.w, 0) > 0.5 ? 1 : 0.5) } : all;
+  }
+  function keyOf(chroma) {
+    if (!chroma || chroma.every(v => v === 0)) return { name: "—", jp: "", conf: 0 };
+    const sc = [];
+    for (let r = 0; r < 12; r++) {
+      const rot = i => chroma[(i + r) % 12];
+      const arr = Array.from({ length: 12 }, (_, i) => rot(i));
+      sc.push([corr12(arr, KMAJ), r, "major"], [corr12(arr, KMIN), r, "minor"]);
+    }
+    sc.sort((a, b) => b[0] - a[0]);
+    const [c, r, mode] = sc[0];
+    return { name: mode === "major" ? `${NMAJ[r]} major` : `${NMIN[r]} minor`, jp: mode === "major" ? `${JMAJ[r]}長調` : `${JMIN[r]}短調`,
+             mode, conf: c - sc[1][0], corr: c, second: sc[1][2] === "major" ? `${NMAJ[sc[1][1]]} major` : `${NMIN[sc[1][1]]} minor` };
+  }
   // =====================================================================
   //  ラウドネス（ITU-R BS.1770 / LUFS）
   // =====================================================================
@@ -522,7 +619,7 @@
     const pl = $("player");
     if (url) { pl.src = url; pl.style.display = "block"; } else { pl.removeAttribute("src"); pl.style.display = "none"; }
     $("btnSplit").disabled = !url;
-    $("songTitle").innerHTML = `<b>${esc(song.name)}</b>（${fmtT(song.dur)}、${song.lufs.toFixed(1)} LUFS）` + (url ? "" : "<br>※音声は保存していないので再生できません。もう一度ファイルを読み込むと再生できます。");
+    $("songTitle").innerHTML = `<b>${esc(song.name)}</b>（${fmtT(song.dur)}、${song.lufs.toFixed(1)} LUFS` + (song.bpm ? `、${song.bpm.toFixed(0)} BPM、${song.key}` : "") + `）` + (url ? "" : "<br>※音声は保存していないので再生できません。もう一度ファイルを読み込むと再生できます。");
     renderSong();
   }
   const esc = t => t.replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
@@ -535,7 +632,7 @@
       const e = cur.bounds[i + 1] ?? T, st = segStats(cur, b, e);
       return `<div class="seg"><span class="t">${fmtT(b)}–${fmtT(e)}</span>` +
         `<select data-i="${i}" style="border-left:6px solid ${LCOL[cur.labels[i]]}">${LABELS.map(l => `<option${l === cur.labels[i] ? " selected" : ""}>${l}</option>`).join("")}</select>` +
-        `<span class="m">${st ? `${st.lufs.toFixed(1)} LUFS・低${Math.round(st.share[0] * 100)}/中${Math.round(st.share[1] * 100)}/高${Math.round(st.share[2] * 100)}%` : ""}</span>` +
+        `<span class="m">${st ? `${st.lufs.toFixed(1)} LUFS・低${Math.round(st.share[0] * 100)}/中${Math.round(st.share[1] * 100)}/高${Math.round(st.share[2] * 100)}%` : ""}${secKey(cur, b, e)}</span>` +
         (i > 0 ? `<button data-m="${i}" title="前の区間とつなげる">結合</button>` : "") + `</div>`;
     }).join("");
     $("segList").querySelectorAll("select").forEach(el => el.onchange = () => { cur.labels[+el.dataset.i] = el.value; cur.auto = false; saveLib(); renderSong(); renderLib(); });
@@ -607,11 +704,17 @@
         `低音の割合 ${pt(S.share[0] - A.share[0])}・高音の割合 ${pt(S.share[2] - A.share[2])}、重心 ${Math.round(A.centroid)} → ${Math.round(S.centroid)} Hz。`
       : "「Aメロ」と「サビ」のラベルがあると、違いをまとめて表示します。";
   }
+  function secKey(song, a, b) {
+    if (!song.chroma || b - a < 6) return "";
+    const k = keyOf(sumChroma(song, a, b));
+    const diff = song.key && k.name !== song.key && k.conf >= 0.05;
+    return `・キー ${k.name}${diff ? ' <b style="color:#ffb74d">（転調？）</b>' : ""}`;
+  }
   const pt = v => `<b>${(v >= 0 ? "+" : "") + (v * 100).toFixed(1)}</b>ポイント`;
 
   function renderLib() {
     $("libList").innerHTML = lib.length ? lib.map((s, i) =>
-      `<div class="seg"><span class="m" style="color:var(--text);font-size:14px">${esc(s.name)}<br><span style="color:var(--sub);font-size:12px">${fmtT(s.dur)}・${s.lufs.toFixed(1)} LUFS</span></span>` +
+      `<div class="seg"><span class="m" style="color:var(--text);font-size:14px">${esc(s.name)}<br><span style="color:var(--sub);font-size:12px">${fmtT(s.dur)}・${s.lufs.toFixed(1)} LUFS${s.bpm ? `・${s.bpm.toFixed(0)} BPM・${s.key}` : ""}</span></span>` +
       `<button data-o="${i}">開く</button><button data-d="${i}">削除</button></div>`).join("")
       : '<div class="detail">まだ曲がありません。「📁 ファイル」で曲を読み込んでください。</div>';
     $("libList").querySelectorAll("button[data-o]").forEach(b => b.onclick = () => { const s = lib[+b.dataset.o]; openSong(s, s === cur ? curURL : null); $("songCard").scrollIntoView({ behavior: "smooth" }); });
@@ -640,6 +743,15 @@
     msgs.push(lowS > 0.6 ? "低音がしっかり出ている曲が多い傾向です。" : lowS < 0.35 ? "低音は控えめで、中高音中心の曲が多い傾向です。" : "低音と中音のバランスが取れた曲が多い傾向です。");
     msgs.push(lu > -10 ? "音圧はかなり高め（最近のポップス・ロック的）です。" : lu < -16 ? "音圧は控えめで、ダイナミクス（強弱）を残した曲が多めです。" : "音圧は標準的です。");
     if (agg["サビ"] && agg["Aメロ"]) msgs.push(`パート別では、サビはAメロより平均 <b>${(mean(agg["サビ"], v => v.rel) - mean(agg["Aメロ"], v => v.rel)).toFixed(1)} dB</b> 大きく、高音の割合は ${pt(mean(agg["サビ"], v => v.share[2]) - mean(agg["Aメロ"], v => v.share[2]))} 違います。`);
+    const tk = lib.filter(s => s.bpm);
+    if (tk.length) {
+      const bp = tk.map(s => s.bpm).sort((a, b) => a - b), medB = bp[Math.floor(bp.length / 2)];
+      const maj = tk.filter(s => s.mode === "major").length, keys = {};
+      tk.forEach(s => keys[s.key] = (keys[s.key] || 0) + 1);
+      const topK = Object.entries(keys).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k, n]) => `${k}（${n}曲）`).join("、");
+      msgs.push(`テンポは ${bp[0].toFixed(0)}〜${bp[bp.length - 1].toFixed(0)} BPM、中央値 <b>${medB.toFixed(0)} BPM</b>（${medB < 90 ? "ゆったりめ" : medB < 125 ? "ミディアム" : "アップテンポ"}）。` +
+                `長調 ${maj}曲・短調 ${tk.length - maj}曲${maj > tk.length * 0.65 ? "で、明るい調の曲が多め" : maj < tk.length * 0.35 ? "で、短調（切ない系）の曲が多め" : ""}。多いキー：${topK}。`);
+    }
     $("libSummary").innerHTML = msgs.join("<br>");
   }
 

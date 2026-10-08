@@ -1,0 +1,348 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#101418">
+<title>音楽の周波数成分集計</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='20' fill='%23263238'/%3E%3Cg fill='%234fc3f7'%3E%3Crect x='14' y='50' width='10' height='36'/%3E%3Crect x='30' y='30' width='10' height='56'/%3E%3Crect x='46' y='20' width='10' height='66'/%3E%3Crect x='62' y='40' width='10' height='46'/%3E%3Crect x='78' y='60' width='10' height='26'/%3E%3C/g%3E%3C/svg%3E">
+<style>
+  :root{--bg:#101418;--card:#1b2129;--text:#e8eaed;--sub:#9aa0a6;--line:rgba(255,255,255,.12);
+        --c1:#4fc3f7;--c2:#ffb74d;--lo:#ef5350;--mid:#81c784;--hi:#42a5f5}
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--text);
+    font-family:system-ui,-apple-system,"Hiragino Sans","Noto Sans JP",sans-serif;font-size:16px}
+  main{max-width:720px;margin:0 auto;padding:16px 16px calc(28px + env(safe-area-inset-bottom))}
+  h1{font-size:19px;margin:4px 0 14px;color:var(--sub)}
+  .card{background:var(--card);border-radius:12px;padding:14px 16px;margin-bottom:12px}
+  .label{font-size:16px;font-weight:700;margin-bottom:6px}
+  .detail{font-size:15px;color:var(--sub);line-height:1.65}
+  .row{display:flex;gap:8px;flex-wrap:wrap}
+  .row>*{flex:1;min-width:0}
+  button,select{font:inherit;font-size:16px;padding:12px 6px;border-radius:10px;border:1px solid var(--line);
+    background:#26303b;color:var(--text);width:100%}
+  button.on{background:#1565c0;border-color:#1565c0}
+  button.stop{background:#b71c1c;border-color:#b71c1c}
+  button:disabled{opacity:.45}
+  canvas{width:100%;display:block;background:var(--card);border-radius:12px;margin-bottom:12px}
+  #cSpec{height:260px} #cBands{height:240px} #cGram{height:200px}
+  .stats{display:grid;grid-template-columns:1fr 1fr;gap:6px 12px;font-size:15px}
+  .stats b{font-size:18px}
+  .share{display:flex;height:22px;border-radius:6px;overflow:hidden;margin:6px 0 4px;font-size:13px}
+  .share div{display:flex;align-items:center;justify-content:center;color:#101418;font-weight:700;white-space:nowrap;overflow:hidden}
+  details{background:var(--card);border-radius:12px;margin-top:12px}
+  summary{padding:15px 16px;font-size:17px;font-weight:700;cursor:pointer;list-style:none}
+  summary::-webkit-details-marker{display:none}
+  summary::after{content:"＋";float:right;color:var(--sub)}
+  details[open] summary::after{content:"－"}
+  .help{padding:0 16px 14px;font-size:16px;line-height:1.75}
+  .help h3{font-size:16px;margin:14px 0 4px;color:var(--c1)}
+  .help ul{padding-left:1.2em;margin:4px 0}
+  input[type=file]{display:none}
+</style>
+</head>
+<body>
+<main>
+  <h1>音楽の周波数成分集計</h1>
+
+  <div class="card">
+    <div class="label">音の取り込み方を選ぶ</div>
+    <div class="row">
+      <button id="srcMic">🎤 マイク</button>
+      <button id="srcTab">🖥 タブの音</button>
+      <button id="srcFile">📁 ファイル</button>
+    </div>
+    <input type="file" id="file" accept="audio/*,video/*">
+    <div class="detail" id="srcNote" style="margin-top:8px">
+      <b>マイク</b>：YouTubeなどをスピーカーで流し、スマホのマイクで拾います（スマホ・PC）。<br>
+      <b>PCのタブの音</b>：PCのChrome/Edgeで、YouTubeのタブの音をデジタルのまま取り込みます（いちばん正確）。<br>
+      <b>音楽ファイル</b>：MP3・WAV・M4Aなどのファイルを読み込んで一気に分析します。
+    </div>
+    <div class="row" style="margin-top:10px">
+      <button id="btnStop" class="stop" disabled>集計を止める</button>
+      <button id="btnReset">リセット</button>
+    </div>
+    <div class="detail" id="status" style="margin-top:8px">集計時間：0秒</div>
+  </div>
+
+  <div class="card">
+    <div class="label">集計結果</div>
+    <div class="stats" id="stats"></div>
+    <div class="detail" style="margin-top:10px">帯域ごとのエネルギーの割合</div>
+    <div class="share" id="share"><div style="flex:1;background:#2a3038;color:var(--sub)">—</div></div>
+    <div class="detail" style="font-size:13px"><span style="color:var(--lo)">■</span> 低音 20–250 Hz　<span style="color:var(--mid)">■</span> 中音 250 Hz–4 kHz　<span style="color:var(--hi)">■</span> 高音 4–20 kHz</div>
+  </div>
+
+  <canvas id="cSpec" aria-label="平均スペクトル"></canvas>
+  <canvas id="cBands" aria-label="1/3オクターブ分布"></canvas>
+  <canvas id="cGram" aria-label="スペクトログラム"></canvas>
+  <div class="row" style="margin-bottom:12px"><button id="btnCsv" disabled>CSV保存</button></div>
+
+  <details>
+    <summary>使い方・見方</summary>
+    <div class="help">
+      <h3>YouTubeを聞きながら集計する</h3>
+      <ul>
+        <li><b>スマホ</b>：別の端末（PC・テレビ・スピーカー）でYouTubeを流し、このページの「🎤 マイク」で集計します。同じスマホで流す場合はYouTubeを別アプリで再生し、このページに戻って開始（スマホのスピーカー→マイクなので低音は少なめに出ます）。</li>
+        <li><b>PC</b>：YouTubeを別のタブで開いておき、「🖥 タブの音」→ 共有画面で<b>YouTubeのタブ</b>を選び、<b>「タブの音声も共有する」をオン</b>にして共有します。音はそのまま聞こえ、デジタルで正確に集計されます。</li>
+        <li>好きなだけ流したら「集計を止める」。曲の途中でも、それまでの合計が表示されます。</li>
+      </ul>
+      <h3>グラフ</h3>
+      <ul>
+        <li><b>Average spectrum</b>：集計した時間全体の平均の周波数成分（青）と、各周波数の最大値（オレンジ）。</li>
+        <li><b>1/3 octave bands</b>：周波数を1/3オクターブ（グラフィックイコライザーの帯域）ごとにまとめたもの。一番大きい帯域を0 dBとした相対値。</li>
+        <li><b>Spectrogram</b>：横が時間、縦が周波数、明るいほど大きい音。</li>
+      </ul>
+      <h3>集計結果の見方</h3>
+      <ul>
+        <li><b>一番強い帯域</b>：エネルギーが最も大きい1/3オクターブ帯。</li>
+        <li><b>高音の上限</b>：平均スペクトルが最大値から60 dB下がる周波数。MP3やYouTubeの圧縮では16〜20 kHzあたりでスパッと切れていることが多く、それが分かります。</li>
+        <li><b>重心周波数</b>：エネルギーの重さの中心。低いほど「低音寄り」、高いほど「明るい・シャリシャリ」な音。</li>
+        <li><b>ピーク／RMS（クレストファクタ）</b>：ファイル・タブ取り込み時のみ。差が小さいほど音圧を上げた（コンプレッサーの強い）音源です。</li>
+      </ul>
+      <p style="color:var(--sub);font-size:15px">マイクで拾う場合は、スピーカー・部屋・マイクの特性が混ざります。音源そのものの特性を見たいときはファイルかタブ取り込みを使ってください。</p>
+    </div>
+  </details>
+</main>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const N = 8192;                               // FFTサイズ
+  let ctx = null, stream = null, src = null, an = null, timer = null, mode = null;
+  let acc = null, mx = null, frames = 0, fs = 48000, seconds = 0, gram = [];
+  let peakAbs = 0, sumSq = 0, nSamp = 0;        // デジタル取り込み時のレベル
+  const spec = new Float32Array(N / 2), td = new Float32Array(N);
+
+  function reset() {
+    acc = new Float64Array(N / 2); mx = new Float64Array(N / 2).fill(0);
+    frames = 0; seconds = 0; gram = []; peakAbs = 0; sumSq = 0; nSamp = 0;
+    $("status").textContent = "集計時間：0秒"; render();
+  }
+  const audio = () => { if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)(); if (ctx.state === "suspended") ctx.resume(); fs = ctx.sampleRate; return ctx; };
+
+  function addFrame(powerLin, t) {               // powerLin: 各ビンの線形パワー
+    for (let i = 0; i < N / 2; i++) { acc[i] += powerLin[i]; if (powerLin[i] > mx[i]) mx[i] = powerLin[i]; }
+    frames++;
+    // スペクトログラム用：対数周波数で 96 本に間引き
+    const col = new Float32Array(96);
+    for (let k = 0; k < 96; k++) {
+      const fa = 20 * Math.pow(1000, k / 96), fb = 20 * Math.pow(1000, (k + 1) / 96);
+      let s = 0, c = 0;
+      for (let b = Math.max(1, Math.floor(fa / fs * N)); b <= Math.min(N / 2 - 1, Math.ceil(fb / fs * N)); b++) { s += powerLin[b]; c++; }
+      col[k] = c ? 10 * Math.log10(s / c + 1e-20) : -200;
+    }
+    gram.push(col); if (gram.length > 2000) gram = gram.filter((_, i) => i % 2 === 0);
+  }
+
+  // ---------- ライブ（マイク／タブ） ----------
+  async function startLive(kind) {
+    stopLive();
+    try {
+      if (kind === "mic") stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+      else {
+        if (!navigator.mediaDevices.getDisplayMedia) throw new Error("このブラウザはタブの音の取り込みに対応していません（PCのChrome/Edgeで使ってください）");
+        stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false }, systemAudio: "include" });
+        if (!stream.getAudioTracks().length) { stream.getTracks().forEach(t => t.stop()); throw new Error("音声が共有されていません。共有画面で「タブの音声も共有する」をオンにしてください"); }
+        stream.getVideoTracks().forEach(t => t.stop());   // 映像は使わない
+      }
+    } catch (e) { $("status").textContent = e.message || String(e); return; }
+    const c = audio();
+    src = c.createMediaStreamSource(stream);
+    an = c.createAnalyser(); an.fftSize = N; an.smoothingTimeConstant = 0;
+    src.connect(an);
+    const mute = c.createGain(); mute.gain.value = 0; an.connect(mute).connect(c.destination);
+    mode = kind; setUI();
+    const p = new Float64Array(N / 2), period = 1000 * (N / 2) / fs;   // 50%重なり相当の間隔
+    timer = setInterval(() => {
+      an.getFloatFrequencyData(spec);
+      for (let i = 0; i < N / 2; i++) p[i] = Math.pow(10, spec[i] / 10);
+      if (kind === "tab") { an.getFloatTimeDomainData(td); for (let i = N / 2; i < N; i++) { const v = td[i]; sumSq += v * v; nSamp++; if (Math.abs(v) > peakAbs) peakAbs = Math.abs(v); } }
+      addFrame(p); seconds += period / 1000;
+      $("status").textContent = `集計中（${kind === "mic" ? "マイク" : "タブの音"}）：${Math.round(seconds)}秒`;
+      if (frames % 3 === 0) render();
+    }, period);
+    stream.getAudioTracks()[0].onended = () => stopLive();
+  }
+  function stopLive() {
+    if (timer) clearInterval(timer); timer = null;
+    if (stream) stream.getTracks().forEach(t => t.stop()); stream = null;
+    if (src) src.disconnect(); src = null;
+    if (mode) $("status").textContent = `集計を止めました（${Math.round(seconds)}秒分）`;
+    mode = null; setUI(); render();
+  }
+
+  // ---------- ファイル ----------
+  function fft(re, im) {                          // 基数2 FFT（in-place）
+    const n = re.length;
+    for (let i = 1, j = 0; i < n; i++) { let bit = n >> 1; for (; j & bit; bit >>= 1) j ^= bit; j ^= bit; if (i < j) { [re[i], re[j]] = [re[j], re[i]]; [im[i], im[j]] = [im[j], im[i]]; } }
+    for (let len = 2; len <= n; len <<= 1) {
+      const a = -2 * Math.PI / len, wr = Math.cos(a), wi = Math.sin(a);
+      for (let i = 0; i < n; i += len) {
+        let cr = 1, ci = 0;
+        for (let j = 0; j < len / 2; j++) {
+          const ur = re[i + j], ui = im[i + j], k = i + j + len / 2;
+          const vr = re[k] * cr - im[k] * ci, vi = re[k] * ci + im[k] * cr;
+          re[i + j] = ur + vr; im[i + j] = ui + vi; re[k] = ur - vr; im[k] = ui - vi;
+          const t = cr * wr - ci * wi; ci = cr * wi + ci * wr; cr = t;
+        }
+      }
+    }
+  }
+  async function analyzeFile(file) {
+    stopLive(); reset(); mode = "file"; setUI();
+    $("status").textContent = `読み込み中：${file.name}`;
+    let buf;
+    try { buf = await audio().decodeAudioData(await file.arrayBuffer()); }
+    catch (e) { $("status").textContent = "このファイルは読み込めませんでした（MP3・WAV・M4A・AACなどを使ってください）"; mode = null; setUI(); return; }
+    fs = buf.sampleRate;
+    const L = buf.length, chs = buf.numberOfChannels, mono = new Float32Array(L);
+    for (let c = 0; c < chs; c++) { const d = buf.getChannelData(c); for (let i = 0; i < L; i++) mono[i] += d[i] / chs; }
+    for (let i = 0; i < L; i++) { const v = mono[i]; sumSq += v * v; if (Math.abs(v) > peakAbs) peakAbs = Math.abs(v); } nSamp = L;
+    const win = new Float32Array(N); let wsum2 = 0;
+    for (let i = 0; i < N; i++) { win[i] = 0.5 - 0.5 * Math.cos(2 * Math.PI * i / (N - 1)); wsum2 += win[i] * win[i]; }
+    const re = new Float64Array(N), im = new Float64Array(N), p = new Float64Array(N / 2), hop = N / 2;
+    const total = Math.max(1, Math.floor((L - N) / hop) + 1);
+    for (let f = 0, pos = 0; pos + N <= L || f === 0; f++, pos += hop) {
+      for (let i = 0; i < N; i++) { re[i] = (mono[pos + i] || 0) * win[i]; im[i] = 0; }
+      fft(re, im);
+      for (let i = 0; i < N / 2; i++) p[i] = (re[i] * re[i] + im[i] * im[i]) * 4 / (wsum2 * N);
+      addFrame(p);
+      if (f % 200 === 0) { $("status").textContent = `分析中：${Math.round(100 * f / total)}%`; await new Promise(r => setTimeout(r)); }
+      if (pos + N > L) break;
+    }
+    seconds = L / fs; mode = null; setUI();
+    $("status").textContent = `分析完了：${file.name}（${Math.floor(seconds / 60)}分${Math.round(seconds % 60)}秒、${(fs / 1000).toFixed(1)} kHz）`;
+    render();
+  }
+
+  // ---------- 集計 ----------
+  const THIRD = (() => { const a = []; for (let k = -17; k <= 13; k++) a.push(1000 * Math.pow(2, k / 3)); return a; })();  // 20 Hz〜20 kHz
+  function analyze() {
+    if (!frames) return null;
+    const avg = Array.from(acc, v => v / frames), binHz = fs / N;
+    const band = (fa, fb) => { let s = 0; for (let b = Math.max(1, Math.ceil(fa / binHz)); b <= Math.min(N / 2 - 1, Math.floor(fb / binHz)); b++) s += avg[b]; return s; };
+    const lo = band(20, 250), mid = band(250, 4000), hi = band(4000, 20000), tot = lo + mid + hi || 1;
+    const thirds = THIRD.map(fc => [fc, band(fc / Math.pow(2, 1 / 6), fc * Math.pow(2, 1 / 6))]);
+    const mxB = Math.max(...thirds.map(x => x[1]));
+    const thirdsDb = thirds.map(([f, v]) => [f, 10 * Math.log10(v / mxB + 1e-20)]);
+    const top = thirdsDb.reduce((m, x) => x[1] > m[1] ? x : m);
+    // 重心周波数
+    let num = 0, den = 0; for (let b = 1; b < N / 2; b++) { const f = b * binHz; if (f < 20 || f > 20000) continue; num += f * avg[b]; den += avg[b]; }
+    // 高音の上限：平均スペクトルの最大値から −60 dB を下回らない最高周波数
+    const avgDb = avg.map(v => 10 * Math.log10(v + 1e-20)), peakDb = Math.max(...avgDb.slice(Math.ceil(20 / binHz)));
+    let upper = 0; for (let b = N / 2 - 1; b > 0; b--) if (avgDb[b] > peakDb - 60) { upper = b * binHz; break; }
+    return { avgDb, mxDb: Array.from(mx, v => 10 * Math.log10(v + 1e-20)), share: [lo / tot, mid / tot, hi / tot], thirdsDb, top, centroid: num / (den || 1), upper, binHz };
+  }
+  const fmtF = f => f >= 1000 ? (f / 1000).toFixed(f >= 10000 ? 1 : 2).replace(/\.?0+$/, "") + " kHz" : Math.round(f) + " Hz";
+
+  function render() {
+    const r = analyze();
+    if (!r) { $("stats").innerHTML = '<div class="detail">まだデータがありません</div><div></div>'; drawSpec(null); drawBands(null); drawGram(); $("btnCsv").disabled = true; return; }
+    const digital = nSamp > 0, rms = digital ? Math.sqrt(sumSq / nSamp) : 0;
+    $("stats").innerHTML =
+      `<div>一番強い帯域<br><b>${fmtF(r.top[0])}</b></div>` +
+      `<div>重心周波数<br><b>${fmtF(r.centroid)}</b></div>` +
+      `<div>高音の上限（−60 dB）<br><b>${fmtF(r.upper)}</b></div>` +
+      `<div>集計時間<br><b>${Math.round(seconds)} 秒</b></div>` +
+      (digital ? `<div>ピーク／RMS<br><b>${(20 * Math.log10(peakAbs + 1e-12)).toFixed(1)} / ${(20 * Math.log10(rms + 1e-12)).toFixed(1)} dBFS</b></div>` +
+                 `<div>クレストファクタ<br><b>${(20 * Math.log10((peakAbs + 1e-12) / (rms + 1e-12))).toFixed(1)} dB</b></div>` : "");
+    const [a, b, c] = r.share.map(v => v * 100);
+    const seg = (v, col, name) => v < 0.5 ? "" : `<div style="flex:${v};background:${col}">${v >= 12 ? name + " " + v.toFixed(0) + "%" : ""}</div>`;
+    $("share").innerHTML = seg(a, "#ef5350", "低") + seg(b, "#81c784", "中") + seg(c, "#42a5f5", "高");
+    drawSpec(r); drawBands(r); drawGram();
+    $("btnCsv").disabled = false;
+  }
+
+  // ---------- 描画 ----------
+  function prep(cv) {
+    const dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+    if (cv.width !== Math.round(W * dpr)) { cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); }
+    const g = cv.getContext("2d"); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, W, H);
+    g.font = "12px system-ui"; g.fillStyle = "#9aa0a6"; g.strokeStyle = "rgba(255,255,255,.12)"; g.lineWidth = 1;
+    return [g, W, H];
+  }
+  const F0 = 20, F1 = 20000, fx = (L, R) => f => L + (R - L) * Math.log(f / F0) / Math.log(F1 / F0);
+  function fAxis(g, x, T, B) {
+    g.textAlign = "center";
+    for (const f of [20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000]) { g.beginPath(); g.moveTo(x(f), T); g.lineTo(x(f), B); g.stroke(); g.fillText(f >= 1000 ? f / 1000 + "k" : f, x(f), B + 15); }
+    g.textAlign = "left";
+  }
+  function drawSpec(r) {
+    const [g, W, H] = prep($("cSpec")), L = 40, R = W - 12, T = 24, B = H - 22, x = fx(L, R);
+    g.fillText("Average spectrum [dB]", L, 15); g.textAlign = "right"; g.fillStyle = "#4fc3f7"; g.fillText("average", R - 70, 15); g.fillStyle = "#ffb74d"; g.fillText("max", R, 15); g.textAlign = "left"; g.fillStyle = "#9aa0a6";
+    if (!r) { fAxis(g, x, T, B); return; }
+    const lo1 = Math.ceil(F0 / r.binHz), hi1 = Math.min(N / 2 - 1, Math.floor(F1 / r.binHz));
+    const top = Math.ceil(Math.max(...r.mxDb.slice(lo1, hi1)) / 10) * 10, bot = top - 90;
+    const y = d => T + (B - T) * (top - Math.max(bot, d)) / (top - bot);
+    for (let d = bot; d <= top; d += 10) { g.beginPath(); g.moveTo(L, y(d)); g.lineTo(R, y(d)); g.stroke(); if ((top - d) % 20 === 0) g.fillText(d, 4, y(d) + 4); }
+    fAxis(g, x, T, B);
+    const line = (arr, col, w) => {             // 対数軸で画素ごとに最大をとって描画
+      g.strokeStyle = col; g.lineWidth = w; g.beginPath(); let first = true;
+      for (let px = L; px <= R; px += 1.5) {
+        const fa = F0 * Math.pow(F1 / F0, (px - L) / (R - L)), fb = F0 * Math.pow(F1 / F0, (px + 1.5 - L) / (R - L));
+        let v = -300; for (let b = Math.floor(fa / r.binHz); b <= Math.ceil(fb / r.binHz); b++) if (b > 0 && b < N / 2 && arr[b] > v) v = arr[b];
+        first ? g.moveTo(px, y(v)) : g.lineTo(px, y(v)); first = false;
+      }
+      g.stroke();
+    };
+    line(r.mxDb, "rgba(255,183,77,.6)", 1.2); line(r.avgDb, "#4fc3f7", 2);
+    if (r.upper) { g.strokeStyle = "#81c784"; g.setLineDash([3, 4]); g.beginPath(); g.moveTo(x(r.upper), T); g.lineTo(x(r.upper), B); g.stroke(); g.setLineDash([]); }
+  }
+  function drawBands(r) {
+    const [g, W, H] = prep($("cBands")), L = 40, R = W - 12, T = 24, B = H - 22, x = fx(L, R);
+    g.fillText("1/3 octave bands [dB, max = 0]", L, 15);
+    const bot = -40, y = d => T + (B - T) * (-Math.max(bot, d)) / -bot;
+    for (let d = bot; d <= 0; d += 10) { g.beginPath(); g.moveTo(L, y(d)); g.lineTo(R, y(d)); g.stroke(); g.fillText(d, 8, y(d) + 4); }
+    fAxis(g, x, T, B);
+    if (!r) return;
+    const w = (R - L) / THIRD.length * 0.75;
+    for (const [f, d] of r.thirdsDb) {
+      g.fillStyle = f < 250 ? "#ef5350" : f < 4000 ? "#81c784" : "#42a5f5";
+      g.fillRect(x(f) - w / 2, y(d), w, B - y(d));
+    }
+  }
+  function drawGram() {
+    const [g, W, H] = prep($("cGram")), L = 40, R = W - 12, T = 24, B = H - 8;
+    g.fillText("Spectrogram (time →)", L, 15);
+    for (const f of [100, 1000, 10000]) { const yy = B - (B - T) * Math.log(f / 20) / Math.log(1000); g.fillText(f >= 1000 ? f / 1000 + "k" : f, 6, yy + 4); }
+    if (!gram.length) return;
+    let gmax = -200; for (const c of gram) for (const v of c) if (v > gmax) gmax = v;
+    const cols = gram.length, cw = (R - L) / cols, rh = (B - T) / 96;
+    for (let i = 0; i < cols; i++) for (let k = 0; k < 96; k++) {
+      const t = Math.max(0, Math.min(1, (gram[i][k] - (gmax - 80)) / 80));
+      g.fillStyle = `hsl(${240 - 240 * t},90%,${10 + 50 * t}%)`;
+      g.fillRect(L + i * cw, B - (k + 1) * rh, cw + 0.6, rh + 0.6);
+    }
+  }
+
+  // ---------- UI ----------
+  function setUI() {
+    $("srcMic").className = mode === "mic" ? "on" : ""; $("srcTab").className = mode === "tab" ? "on" : "";
+    $("srcFile").className = mode === "file" ? "on" : "";
+    $("btnStop").disabled = !(mode === "mic" || mode === "tab");
+  }
+  $("srcMic").onclick = () => { reset(); startLive("mic"); };
+  $("srcTab").onclick = () => { reset(); startLive("tab"); };
+  $("srcFile").onclick = () => $("file").click();
+  $("file").onchange = e => { const f = e.target.files[0]; if (f) analyzeFile(f); e.target.value = ""; };
+  $("btnStop").onclick = stopLive;
+  $("btnReset").onclick = () => { stopLive(); reset(); };
+  $("btnCsv").onclick = () => {
+    const r = analyze(); if (!r) return;
+    let csv = "# 1/3 octave\nfreq_Hz,level_dB_rel\n" + r.thirdsDb.map(([f, d]) => `${f.toFixed(1)},${d.toFixed(2)}`).join("\n");
+    csv += "\n\n# spectrum\nfreq_Hz,avg_dB,max_dB\n";
+    for (let b = 1; b < N / 2; b++) { const f = b * r.binHz; if (f > 20000) break; csv += `${f.toFixed(2)},${r.avgDb[b].toFixed(2)},${r.mxDb[b].toFixed(2)}\n`; }
+    const a = document.createElement("a"), t = new Date(), p = n => String(n).padStart(2, "0");
+    a.download = `spectrum_${t.getFullYear()}${p(t.getMonth()+1)}${p(t.getDate())}_${p(t.getHours())}${p(t.getMinutes())}.csv`;
+    a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" })); a.click();
+  };
+  if (!navigator.mediaDevices?.getDisplayMedia || /Android|iPhone|iPad/i.test(navigator.userAgent)) {
+    $("srcTab").disabled = true; $("srcTab").textContent = "🖥 タブ（PCのみ）";
+  }
+  window.addEventListener("resize", render);
+  reset();
+})();
+</script>
+</body>
+</html>

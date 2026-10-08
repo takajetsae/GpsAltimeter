@@ -39,6 +39,16 @@
   .help h3{font-size:16px;margin:14px 0 4px;color:var(--c1)}
   .help ul{padding-left:1.2em;margin:4px 0}
   input[type=file]{display:none}
+  .seg{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:8px 0;border-top:1px solid var(--line);font-size:14px}
+  .seg select{width:auto;padding:6px 4px;font-size:15px}
+  .seg .t{width:92px;font-variant-numeric:tabular-nums;color:var(--sub)}
+  .seg .m{flex:1 1 100%;order:9;font-size:13px;color:var(--sub)}
+  #libList .seg .m{flex:1;order:0}
+  .seg select{flex:1}
+  .seg button{width:auto;padding:6px 8px;font-size:13px}
+  table.lt{width:100%;border-collapse:collapse;font-size:13px;font-variant-numeric:tabular-nums;margin-top:6px}
+  table.lt td,table.lt th{padding:5px 3px;border-top:1px solid var(--line);text-align:right}
+  table.lt td:first-child,table.lt th:first-child{text-align:left}
 </style>
 </head>
 <body>
@@ -78,6 +88,31 @@
   <canvas id="cGram" aria-label="スペクトログラム"></canvas>
   <div class="row" style="margin-bottom:12px"><button id="btnCsv" disabled>CSV保存</button></div>
 
+  <div class="card" id="songCard" style="display:none">
+    <div class="label">曲の構成（イントロ・Aメロ・サビ…）</div>
+    <div class="detail" id="songTitle"></div>
+    <audio id="player" controls style="width:100%;margin:8px 0;display:none"></audio>
+    <canvas id="cTime" style="height:170px;margin-bottom:6px" aria-label="曲の時間変化"></canvas>
+    <div class="detail" style="font-size:13px">上の図をタップするとその位置から再生します。区切りとラベルは自動判定の目安なので、聞きながら直してください。</div>
+    <div class="row" style="margin-top:8px">
+      <button id="btnSplit">再生位置で区切る</button>
+      <button id="btnAuto">自動で区切り直す</button>
+    </div>
+    <div id="segList" style="margin-top:8px"></div>
+    <canvas id="cSec" style="height:230px;margin-top:10px" aria-label="区間ごとの比較"></canvas>
+    <div class="detail" id="secSummary"></div>
+  </div>
+
+  <div class="card">
+    <div class="label">好きな曲の傾向（ライブラリ）</div>
+    <div class="detail">ファイルで分析した曲は自動でここに貯まります（このスマホ・PCに保存）。いろいろな好きな曲を入れるほど傾向がはっきりします。</div>
+    <div id="libList" style="margin-top:8px"></div>
+    <canvas id="cLib" style="height:230px;margin-top:10px" aria-label="曲ごとの周波数の傾向"></canvas>
+    <canvas id="cLab" style="height:230px" aria-label="パートごとの傾向"></canvas>
+    <div id="labTable"></div>
+    <div class="detail" id="libSummary" style="margin-top:8px"></div>
+  </div>
+
   <details>
     <summary>使い方・見方</summary>
     <div class="help">
@@ -100,6 +135,20 @@
         <li><b>重心周波数</b>：エネルギーの重さの中心。低いほど「低音寄り」、高いほど「明るい・シャリシャリ」な音。</li>
         <li><b>ピーク／RMS（クレストファクタ）</b>：ファイル・タブ取り込み時のみ。差が小さいほど音圧を上げた（コンプレッサーの強い）音源です。</li>
       </ul>
+      <h3>曲の構成（イントロ・Aメロ・サビ）</h3>
+      <ul>
+        <li>ファイルで読み込んだ曲は、音量と音色の変わり目から<b>自動で区切り</b>、音量・繰り返しをもとにイントロ／Aメロ／Bメロ／サビ…を<b>推測</b>します。あくまで目安です。</li>
+        <li>上の図をタップするとその位置から再生できます。聞きながら、ラベルの変更・「再生位置で区切る」・「結合」で直してください。直した内容は保存されます。</li>
+        <li>パートごとの音量（LUFS）、低・中・高音の割合、周波数バランスを比べられます。</li>
+      </ul>
+      <h3>好きな曲の傾向（ライブラリ）</h3>
+      <ul>
+        <li>分析した曲はこの端末に貯まり、曲ごとの周波数バランスと平均（白線）、パート別の平均（サビとAメロの違いなど）を集計します。</li>
+        <li>「dB re total」は曲（パート）全体のエネルギーに対する割合で、音量の違いを除いた<b>音色の形</b>を比べるためのものです。</li>
+        <li>自分のDAWの曲をライブラリに入れて、好きな曲の平均と比べるとミックスの参考になります。</li>
+      </ul>
+      <h3>ラウドネス（LUFS）</h3>
+      <p>人の耳の感じ方に合わせた音量の国際規格（ITU-R BS.1770）の値です。YouTubeやSpotifyなどは約 −14 LUFS を目安に音量をそろえるため、それより大きい曲は再生時に下げられます。</p>
       <p style="color:var(--sub);font-size:15px">マイクで拾う場合は、スピーカー・部屋・マイクの特性が混ざります。音源そのものの特性を見たいときはファイルかタブ取り込みを使ってください。</p>
     </div>
   </details>
@@ -112,11 +161,12 @@
   let ctx = null, stream = null, src = null, an = null, timer = null, mode = null;
   let acc = null, mx = null, frames = 0, fs = 48000, seconds = 0, gram = [];
   let peakAbs = 0, sumSq = 0, nSamp = 0;        // デジタル取り込み時のレベル
+  let lastLufs = null;
   const spec = new Float32Array(N / 2), td = new Float32Array(N);
 
   function reset() {
     acc = new Float64Array(N / 2); mx = new Float64Array(N / 2).fill(0);
-    frames = 0; seconds = 0; gram = []; peakAbs = 0; sumSq = 0; nSamp = 0;
+    frames = 0; seconds = 0; gram = []; peakAbs = 0; sumSq = 0; nSamp = 0; lastLufs = null;
     $("status").textContent = "集計時間：0秒"; render();
   }
   const audio = () => { if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)(); if (ctx.state === "suspended") ctx.resume(); fs = ctx.sampleRate; return ctx; };
@@ -203,15 +253,25 @@
     for (let i = 0; i < N; i++) { win[i] = 0.5 - 0.5 * Math.cos(2 * Math.PI * i / (N - 1)); wsum2 += win[i] * win[i]; }
     const re = new Float64Array(N), im = new Float64Array(N), p = new Float64Array(N / 2), hop = N / 2;
     const total = Math.max(1, Math.floor((L - N) / hop) + 1);
+    const nSec = Math.ceil(L / fs), secPow = Array.from({ length: nSec }, () => new Float64Array(THIRD.length)), secCnt = new Float64Array(nSec);
+    const ranges = THIRD.map(fc => [Math.max(1, Math.ceil(fc / Math.pow(2, 1 / 6) / fs * N)), Math.min(N / 2 - 1, Math.floor(fc * Math.pow(2, 1 / 6) / fs * N))]);
     for (let f = 0, pos = 0; pos + N <= L || f === 0; f++, pos += hop) {
       for (let i = 0; i < N; i++) { re[i] = (mono[pos + i] || 0) * win[i]; im[i] = 0; }
       fft(re, im);
       for (let i = 0; i < N / 2; i++) p[i] = (re[i] * re[i] + im[i] * im[i]) * 4 / (wsum2 * N);
       addFrame(p);
+      { const sc = Math.min(nSec - 1, Math.floor((pos + N / 2) / fs)); secCnt[sc]++;
+        ranges.forEach(([a, b], k) => { let t = 0; for (let i = a; i <= b; i++) t += p[i]; secPow[sc][k] += t; }); }
       if (f % 200 === 0) { $("status").textContent = `分析中：${Math.round(100 * f / total)}%`; await new Promise(r => setTimeout(r)); }
       if (pos + N > L) break;
     }
-    seconds = L / fs; mode = null; setUI();
+    seconds = L / fs;
+    $("status").textContent = "ラウドネス計算中…"; await new Promise(r => setTimeout(r));
+    const loud = loudness(buf);
+    lastLufs = loud.integrated;
+    const song = makeSong(file.name, L / fs, fs, secPow, secCnt, loud, peakAbs, Math.sqrt(sumSq / nSamp));
+    mode = null; setUI();
+    onSong(song, URL.createObjectURL(file));
     $("status").textContent = `分析完了：${file.name}（${Math.floor(seconds / 60)}分${Math.round(seconds % 60)}秒、${(fs / 1000).toFixed(1)} kHz）`;
     render();
   }
@@ -245,6 +305,7 @@
       `<div>重心周波数<br><b>${fmtF(r.centroid)}</b></div>` +
       `<div>高音の上限（−60 dB）<br><b>${fmtF(r.upper)}</b></div>` +
       `<div>集計時間<br><b>${Math.round(seconds)} 秒</b></div>` +
+      (lastLufs != null ? `<div>ラウドネス<br><b>${lastLufs.toFixed(1)} LUFS</b></div><div>配信基準との差<br><b>${(lastLufs + 14).toFixed(1)} dB</b><span style="font-size:12px">（−14 LUFS比）</span></div>` : "") +
       (digital ? `<div>ピーク／RMS<br><b>${(20 * Math.log10(peakAbs + 1e-12)).toFixed(1)} / ${(20 * Math.log10(rms + 1e-12)).toFixed(1)} dBFS</b></div>` +
                  `<div>クレストファクタ<br><b>${(20 * Math.log10((peakAbs + 1e-12) / (rms + 1e-12))).toFixed(1)} dB</b></div>` : "");
     const [a, b, c] = r.share.map(v => v * 100);
@@ -316,6 +377,272 @@
     }
   }
 
+
+  // =====================================================================
+  //  ラウドネス（ITU-R BS.1770 / LUFS）
+  // =====================================================================
+  function biquad(type, fc, Q, gainDb, sr) {
+    const A = Math.pow(10, gainDb / 40), w0 = 2 * Math.PI * fc / sr, al = Math.sin(w0) / (2 * Q), c = Math.cos(w0);
+    let b0, b1, b2, a0, a1, a2;
+    if (type === "shelf") {
+      const s2 = 2 * Math.sqrt(A) * al;
+      b0 = A * ((A + 1) + (A - 1) * c + s2); b1 = -2 * A * ((A - 1) + (A + 1) * c); b2 = A * ((A + 1) + (A - 1) * c - s2);
+      a0 = (A + 1) - (A - 1) * c + s2; a1 = 2 * ((A - 1) - (A + 1) * c); a2 = (A + 1) - (A - 1) * c - s2;
+    } else { b0 = (1 + c) / 2; b1 = -(1 + c); b2 = (1 + c) / 2; a0 = 1 + al; a1 = -2 * c; a2 = 1 - al; }
+    return [b0 / a0, b1 / a0, b2 / a0, a1 / a0, a2 / a0];
+  }
+  function filt(x, [b0, b1, b2, a1, a2]) {
+    const y = new Float32Array(x.length); let x1 = 0, x2 = 0, y1 = 0, y2 = 0;
+    for (let i = 0; i < x.length; i++) { const v = b0 * x[i] + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2; x2 = x1; x1 = x[i]; y2 = y1; y1 = v; y[i] = v; }
+    return y;
+  }
+  const lufsOf = z => -0.691 + 10 * Math.log10(z + 1e-20);
+  function gated(blocks) {                      // 絶対(-70)＋相対(-10)ゲート
+    const a = blocks.filter(z => lufsOf(z) > -70); if (!a.length) return -70;
+    const rel = lufsOf(a.reduce((t, z) => t + z, 0) / a.length) - 10;
+    const b = a.filter(z => lufsOf(z) > rel); return lufsOf(b.reduce((t, z) => t + z, 0) / b.length);
+  }
+  function loudness(buf) {
+    const sr = buf.sampleRate, st = Math.round(sr / 10), n100 = Math.floor(buf.length / st), ms100 = new Float64Array(n100);
+    const sh = biquad("shelf", 1500, Math.SQRT1_2, 4, sr), hp = biquad("hp", 38, 0.5, 0, sr);
+    for (let c = 0; c < Math.min(2, buf.numberOfChannels); c++) {
+      const y = filt(filt(buf.getChannelData(c), sh), hp);
+      for (let k = 0; k < n100; k++) { let t = 0; for (let i = k * st; i < (k + 1) * st; i++) t += y[i] * y[i]; ms100[k] += t / st; }
+    }
+    const blocks = []; for (let k = 0; k + 4 <= n100; k++) blocks.push((ms100[k] + ms100[k + 1] + ms100[k + 2] + ms100[k + 3]) / 4);
+    const perSec = []; for (let s = 0; s * 10 < n100; s++) { let t = 0, c = 0; for (let k = s * 10; k < Math.min(n100, s * 10 + 10); k++) { t += ms100[k]; c++; } perSec.push(t / c); }
+    return { integrated: gated(blocks), perSec };
+  }
+
+  // =====================================================================
+  //  曲データ（1秒ごとの1/3オクターブ＋ラウドネス）
+  // =====================================================================
+  const LABELS = ["イントロ", "Aメロ", "Bメロ", "サビ", "Cメロ", "間奏", "アウトロ", "その他"];
+  const LCOL = { "イントロ": "#9575cd", "Aメロ": "#4fc3f7", "Bメロ": "#81c784", "サビ": "#ef5350", "Cメロ": "#4db6ac", "間奏": "#ffb74d", "アウトロ": "#a1887f", "その他": "#90a4ae" };
+  const BAND_LOW = THIRD_IDX(250), BAND_HI = THIRD_IDX(4000);
+  function THIRD_IDX(f) { return THIRD_LIST().findIndex(x => x >= f / Math.pow(2, 1 / 6)); }
+  function THIRD_LIST() { const a = []; for (let k = -17; k <= 13; k++) a.push(1000 * Math.pow(2, k / 3)); return a; }
+  function makeSong(name, dur, sr, secPow, secCnt, loud, peak, rms) {
+    const bands = secPow.map((row, i) => Array.from(row, v => Math.round(10 * 10 * Math.log10(v / Math.max(1, secCnt[i]) + 1e-20))));   // dB×10
+    const kdb = loud.perSec.map(z => Math.round(10 * lufsOf(z)));
+    return { id: Date.now() + "_" + Math.random().toString(36).slice(2, 6), name, dur, fs: sr, lufs: loud.integrated,
+             peak: 20 * Math.log10(peak + 1e-12), rms: 20 * Math.log10(rms + 1e-12), bands, kdb, bounds: null, labels: null, date: new Date().toISOString() };
+  }
+  // 区間 [a,b) 秒の集計
+  function segStats(song, a, b) {
+    const tl = THIRD_LIST(), pw = new Float64Array(tl.length); let n = 0, kz = [];
+    for (let s = Math.floor(a); s < Math.min(song.bands.length, Math.ceil(b)); s++) {
+      song.bands[s].forEach((d, k) => pw[k] += Math.pow(10, d / 100)); n++;
+      if (song.kdb[s] != null) kz.push(Math.pow(10, (song.kdb[s] / 10 + 0.691) / 10));
+    }
+    if (!n) return null;
+    const tot = pw.reduce((t, v) => t + v, 0) || 1e-20;
+    let lo = 0, mid = 0, hi = 0, num = 0;
+    pw.forEach((v, k) => { if (tl[k] < 250) lo += v; else if (tl[k] < 4000) mid += v; else hi += v; num += v * tl[k]; });
+    const shape = Array.from(pw, v => 10 * Math.log10(v / tot + 1e-20));               // 全体エネルギーに対する比（音量に依存しない形）
+    const lu = kz.length ? lufsOf(kz.filter(z => lufsOf(z) > -70).reduce((t, z) => t + z, 0) / Math.max(1, kz.filter(z => lufsOf(z) > -70).length)) : -70;
+    return { lufs: lu, share: [lo / tot, mid / tot, hi / tot], centroid: num / tot, shape, dur: b - a };
+  }
+
+  // ---------- 自動区切り（Footeの新規性曲線） ----------
+  function autoSegment(song) {
+    const T = song.bands.length; if (T < 20) return { bounds: [0], labels: ["その他"] };
+    const D = song.bands[0].length;
+    const feat = song.bands.map((row, s) => { const v = row.map(d => Math.max(d / 10, -100)); v.push((song.kdb[s] ?? -700) / 10 * 2); return v; });
+    const dims = D + 1, mu = new Array(dims).fill(0), sd = new Array(dims).fill(0);
+    feat.forEach(v => v.forEach((x, i) => mu[i] += x / T)); feat.forEach(v => v.forEach((x, i) => sd[i] += (x - mu[i]) ** 2 / T));
+    const z = feat.map(v => v.map((x, i) => (x - mu[i]) / (Math.sqrt(sd[i]) + 1e-6)));
+    const nrm = z.map(v => Math.sqrt(v.reduce((t, x) => t + x * x, 0)) + 1e-9);
+    const sim = (i, j) => { let t = 0; for (let k = 0; k < dims; k++) t += z[i][k] * z[j][k]; return t / (nrm[i] * nrm[j]); };
+    const K = 6, nov = new Float64Array(T);
+    for (let t = K; t < T - K; t++) {
+      let v = 0;
+      for (let i = -K; i < K; i++) for (let j = -K; j < K; j++) {
+        const w = Math.exp(-((i + 0.5) ** 2 + (j + 0.5) ** 2) / (2 * (K / 2) ** 2));
+        v += ((i < 0) === (j < 0) ? 1 : -1) * w * sim(t + i, t + j);
+      }
+      nov[t] = v;
+    }
+    const m = nov.reduce((a, b) => a + b, 0) / T, sdv = Math.sqrt(nov.reduce((a, b) => a + (b - m) ** 2, 0) / T);
+    const cand = [];
+    for (let t = 1; t < T - 1; t++) if (nov[t] > m + 0.4 * sdv && nov[t] >= nov[t - 1] && nov[t] >= nov[t + 1]) cand.push([t, nov[t]]);
+    cand.sort((a, b) => b[1] - a[1]);
+    const bounds = [0];
+    for (const [t] of cand) if (bounds.every(b => Math.abs(b - t) >= 8) && t >= 4 && t <= T - 4) bounds.push(t);
+    bounds.sort((a, b) => a - b);
+    return { bounds, labels: guessLabels(song, bounds) };
+  }
+  function guessLabels(song, bounds) {
+    const T = song.bands.length, segs = bounds.map((b, i) => segStats(song, b, bounds[i + 1] ?? T));
+    const maxL = Math.max(...segs.map(s => s ? s.lufs : -70));
+    const med = [...segs.map(s => s ? s.lufs : -70)].sort((a, b) => a - b)[Math.floor(segs.length / 2)];
+    const corr = (a, b) => { const n = a.length, ma = a.reduce((t, x) => t + x, 0) / n, mb = b.reduce((t, x) => t + x, 0) / n;
+      let num = 0, da = 0, db = 0; for (let i = 0; i < n; i++) { num += (a[i] - ma) * (b[i] - mb); da += (a[i] - ma) ** 2; db += (b[i] - mb) ** 2; } return num / Math.sqrt(da * db + 1e-12); };
+    const labels = segs.map(() => null);
+    segs.forEach((s, i) => { if (s && s.lufs >= maxL - 1.5 && s.dur >= 10) labels[i] = "サビ"; });
+    if (!labels[0] && segs[0] && (segs[0].lufs < med - 1 || segs[0].dur < 20)) labels[0] = "イントロ";
+    const last = segs.length - 1;
+    if (last > 0 && !labels[last] && segs[last] && segs[last].lufs < med - 1) labels[last] = "アウトロ";
+    const known = [];
+    let beforeChorus = [];
+    for (let i = 0; i < segs.length; i++) {
+      if (labels[i]) { if (labels[i] === "サビ") beforeChorus = []; continue; }
+      const s = segs[i]; if (!s) { labels[i] = "その他"; continue; }
+      const match = known.find(k => corr(k.s.shape, s.shape) > 0.97 && Math.abs(k.s.lufs - s.lufs) < 1.5);
+      if (match) labels[i] = match.l;
+      else if (s.dur < 14 && i > 0 && labels[i - 1] === "サビ" && labels[i + 1] !== "サビ") labels[i] = "間奏";
+      else labels[i] = beforeChorus.length === 0 ? (known.some(k => k.l === "Aメロ") ? (known.some(k => k.l === "Bメロ") ? "Cメロ" : "Bメロ") : "Aメロ")
+                     : (beforeChorus.includes("Aメロ") ? "Bメロ" : "Aメロ");
+      beforeChorus.push(labels[i]); known.push({ l: labels[i], s });
+    }
+    return labels;
+  }
+
+  // =====================================================================
+  //  ライブラリ（保存）
+  // =====================================================================
+  let lib = [], cur = null, curURL = null;
+  try { lib = JSON.parse(localStorage.getItem("specLib") || "[]"); } catch (e) { lib = []; }
+  function saveLib() {
+    try { localStorage.setItem("specLib", JSON.stringify(lib)); }
+    catch (e) { while (lib.length > 1) { lib.shift(); try { localStorage.setItem("specLib", JSON.stringify(lib)); break; } catch (e2) {} } }
+  }
+  function onSong(song, url) {
+    const old = lib.findIndex(x => x.name === song.name && Math.abs(x.dur - song.dur) < 1);
+    if (old >= 0) { song.bounds = lib[old].bounds; song.labels = lib[old].labels; lib.splice(old, 1); }
+    if (!song.bounds) { const a = autoSegment(song); song.bounds = a.bounds; song.labels = a.labels; song.auto = true; }
+    lib.push(song); saveLib();
+    openSong(song, url);
+    renderLib();
+  }
+  function openSong(song, url) {
+    cur = song; $("songCard").style.display = "block";
+    if (curURL && curURL !== url) URL.revokeObjectURL(curURL);
+    curURL = url || null;
+    const pl = $("player");
+    if (url) { pl.src = url; pl.style.display = "block"; } else { pl.removeAttribute("src"); pl.style.display = "none"; }
+    $("btnSplit").disabled = !url;
+    $("songTitle").innerHTML = `<b>${esc(song.name)}</b>（${fmtT(song.dur)}、${song.lufs.toFixed(1)} LUFS）` + (url ? "" : "<br>※音声は保存していないので再生できません。もう一度ファイルを読み込むと再生できます。");
+    renderSong();
+  }
+  const esc = t => t.replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const fmtT = t => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}`;
+
+  function renderSong() {
+    if (!cur) return;
+    const T = cur.bands.length;
+    $("segList").innerHTML = cur.bounds.map((b, i) => {
+      const e = cur.bounds[i + 1] ?? T, st = segStats(cur, b, e);
+      return `<div class="seg"><span class="t">${fmtT(b)}–${fmtT(e)}</span>` +
+        `<select data-i="${i}" style="border-left:6px solid ${LCOL[cur.labels[i]]}">${LABELS.map(l => `<option${l === cur.labels[i] ? " selected" : ""}>${l}</option>`).join("")}</select>` +
+        `<span class="m">${st ? `${st.lufs.toFixed(1)} LUFS・低${Math.round(st.share[0] * 100)}/中${Math.round(st.share[1] * 100)}/高${Math.round(st.share[2] * 100)}%` : ""}</span>` +
+        (i > 0 ? `<button data-m="${i}" title="前の区間とつなげる">結合</button>` : "") + `</div>`;
+    }).join("");
+    $("segList").querySelectorAll("select").forEach(el => el.onchange = () => { cur.labels[+el.dataset.i] = el.value; cur.auto = false; saveLib(); renderSong(); renderLib(); });
+    $("segList").querySelectorAll("button[data-m]").forEach(el => el.onclick = () => { const i = +el.dataset.m; cur.bounds.splice(i, 1); cur.labels.splice(i, 1); saveLib(); renderSong(); renderLib(); });
+    drawTime(); drawSec();
+  }
+  $("btnSplit").onclick = () => {
+    if (!cur) return; const t = Math.round($("player").currentTime);
+    if (t <= 0 || t >= cur.bands.length || cur.bounds.some(b => Math.abs(b - t) < 2)) return;
+    const i = cur.bounds.findIndex(b => b > t); const at = i < 0 ? cur.bounds.length : i;
+    cur.bounds.splice(at, 0, t); cur.labels.splice(at, 0, cur.labels[at - 1]); saveLib(); renderSong(); renderLib();
+  };
+  $("btnAuto").onclick = () => { if (!cur) return; const a = autoSegment(cur); cur.bounds = a.bounds; cur.labels = a.labels; saveLib(); renderSong(); renderLib(); };
+  $("player").addEventListener("timeupdate", () => drawTime());
+  $("cTime").addEventListener("click", e => {
+    if (!cur || !curURL) return; const r = $("cTime").getBoundingClientRect(), L = 40, R = r.width - 12;
+    const t = (e.clientX - r.left - L) / (R - L) * cur.dur; if (t >= 0 && t <= cur.dur) { $("player").currentTime = t; $("player").play(); }
+  });
+
+  function drawTime() {
+    if (!cur) return;
+    const [g, W, H] = prep($("cTime")), L = 40, R = W - 12, T0 = 20, B = H - 40, T = cur.bands.length;
+    const x = t => L + (R - L) * t / cur.dur;
+    g.fillText("Loudness [LUFS, 1 s]", L, 13);
+    const vals = cur.kdb.map(v => v / 10).filter(v => v > -70), hi = Math.ceil(Math.max(...vals, -20) / 5) * 5, lo = hi - 30;
+    const y = d => T0 + (B - T0) * (hi - Math.max(lo, d)) / (hi - lo);
+    for (let d = lo; d <= hi; d += 10) { g.beginPath(); g.moveTo(L, y(d)); g.lineTo(R, y(d)); g.stroke(); g.fillText(d, 4, y(d) + 4); }
+    cur.bounds.forEach((b, i) => { const e = cur.bounds[i + 1] ?? T; g.fillStyle = LCOL[cur.labels[i]];
+      g.globalAlpha = 0.18; g.fillRect(x(b), T0, x(e) - x(b), B - T0); g.globalAlpha = 1;
+      g.fillRect(x(b), B + 6, Math.max(1, x(e) - x(b) - 1), 14);
+      g.fillStyle = "#101418"; g.font = "11px system-ui"; if (x(e) - x(b) > 30) g.fillText(cur.labels[i], x(b) + 3, B + 17); g.font = "12px system-ui"; });
+    g.strokeStyle = "#e8eaed"; g.lineWidth = 1.5; g.beginPath();
+    cur.kdb.forEach((v, s) => { const px = x(s + 0.5), py = y(v / 10); s ? g.lineTo(px, py) : g.moveTo(px, py); }); g.stroke();
+    g.fillStyle = "#9aa0a6"; g.textAlign = "right"; g.fillText(fmtT(cur.dur), R, H - 2); g.textAlign = "left"; g.fillText("0:00", L, H - 2);
+    const pl = $("player"); if (curURL && pl.currentTime > 0) { g.strokeStyle = "#ffeb3b"; g.lineWidth = 2; g.beginPath(); g.moveTo(x(pl.currentTime), T0); g.lineTo(x(pl.currentTime), B + 20); g.stroke(); }
+  }
+  function byLabel(song) {                      // 同じラベルの区間をまとめた集計
+    const T = song.bands.length, out = {};
+    song.bounds.forEach((b, i) => { const l = song.labels[i], e = song.bounds[i + 1] ?? T; (out[l] = out[l] || []).push([b, e]); });
+    const res = {};
+    for (const [l, rs] of Object.entries(out)) {
+      const st = rs.map(([a, b]) => segStats(song, a, b)).filter(Boolean); if (!st.length) continue;
+      const w = st.map(s => s.dur), W = w.reduce((t, v) => t + v, 0);
+      res[l] = { lufs: lufsOf(st.reduce((t, s, i) => t + Math.pow(10, (s.lufs + 0.691) / 10) * w[i], 0) / W),
+                 share: [0, 1, 2].map(k => st.reduce((t, s, i) => t + s.share[k] * w[i], 0) / W),
+                 centroid: st.reduce((t, s, i) => t + s.centroid * w[i], 0) / W,
+                 shape: st[0].shape.map((_, k) => 10 * Math.log10(st.reduce((t, s, i) => t + Math.pow(10, s.shape[k] / 10) * w[i], 0) / W)),
+                 dur: W };
+    }
+    return res;
+  }
+  function shapeChart(cv, title, series) {      // series: [{name,color,shape,width}]
+    const [g, W, H] = prep(cv), L = 40, R = W - 12, T = 24, B = H - 34, tl = THIRD_LIST(), x = fx(L, R);
+    g.fillText(title, L, 15);
+    const top = -5, bot = -45, y = d => T + (B - T) * (top - Math.max(bot, Math.min(top, d))) / (top - bot);
+    for (let d = bot; d <= top; d += 10) { g.beginPath(); g.moveTo(L, y(d)); g.lineTo(R, y(d)); g.stroke(); g.fillText(d, 8, y(d) + 4); }
+    fAxis(g, x, T, B);
+    for (const s of series) { g.strokeStyle = s.color; g.lineWidth = s.width || 2; g.globalAlpha = s.alpha ?? 1; g.beginPath();
+      s.shape.forEach((d, k) => k ? g.lineTo(x(tl[k]), y(d)) : g.moveTo(x(tl[k]), y(d))); g.stroke(); g.globalAlpha = 1; }
+    let lx = L; g.font = "11px system-ui";
+    for (const s of series.filter(s => s.name)) { g.fillStyle = s.color; g.fillRect(lx, H - 12, 10, 4); g.fillText(s.name, lx + 13, H - 6); lx += g.measureText(s.name).width + 26; if (lx > R - 40) break; }
+  }
+  function drawSec() {
+    const bl = byLabel(cur);
+    shapeChart($("cSec"), "Sections: spectral balance [dB re total]", LABELS.filter(l => bl[l]).map(l => ({ name: l, color: LCOL[l], shape: bl[l].shape })));
+    const A = bl["Aメロ"], S = bl["サビ"];
+    $("secSummary").innerHTML = (A && S)
+      ? `サビはAメロより <b>${(S.lufs - A.lufs >= 0 ? "+" : "") + (S.lufs - A.lufs).toFixed(1)} dB</b> ${S.lufs >= A.lufs ? "大きく" : "小さく"}、` +
+        `低音の割合 ${pt(S.share[0] - A.share[0])}・高音の割合 ${pt(S.share[2] - A.share[2])}、重心 ${Math.round(A.centroid)} → ${Math.round(S.centroid)} Hz。`
+      : "「Aメロ」と「サビ」のラベルがあると、違いをまとめて表示します。";
+  }
+  const pt = v => `<b>${(v >= 0 ? "+" : "") + (v * 100).toFixed(1)}</b>ポイント`;
+
+  function renderLib() {
+    $("libList").innerHTML = lib.length ? lib.map((s, i) =>
+      `<div class="seg"><span class="m" style="color:var(--text);font-size:14px">${esc(s.name)}<br><span style="color:var(--sub);font-size:12px">${fmtT(s.dur)}・${s.lufs.toFixed(1)} LUFS</span></span>` +
+      `<button data-o="${i}">開く</button><button data-d="${i}">削除</button></div>`).join("")
+      : '<div class="detail">まだ曲がありません。「📁 ファイル」で曲を読み込んでください。</div>';
+    $("libList").querySelectorAll("button[data-o]").forEach(b => b.onclick = () => { const s = lib[+b.dataset.o]; openSong(s, s === cur ? curURL : null); $("songCard").scrollIntoView({ behavior: "smooth" }); });
+    $("libList").querySelectorAll("button[data-d]").forEach(b => b.onclick = () => { const s = lib.splice(+b.dataset.d, 1)[0]; if (s === cur) { cur = null; $("songCard").style.display = "none"; } saveLib(); renderLib(); });
+    if (!lib.length) { prep($("cLib")); prep($("cLab")); $("labTable").innerHTML = ""; $("libSummary").textContent = ""; return; }
+    // 曲全体の形と平均
+    const whole = lib.map(s => segStats(s, 0, s.bands.length)).filter(Boolean);
+    const avgShape = whole[0].shape.map((_, k) => 10 * Math.log10(whole.reduce((t, w) => t + Math.pow(10, w.shape[k] / 10), 0) / whole.length));
+    const palette = ["#4fc3f7", "#81c784", "#ffb74d", "#ba68c8", "#4db6ac", "#f06292", "#aed581", "#ffd54f"];
+    shapeChart($("cLib"), "Songs: spectral balance [dB re total]",
+      [...whole.map((w, i) => ({ name: lib.length <= 6 ? lib[i].name.replace(/\.[^.]+$/, "").slice(0, 12) : "", color: palette[i % palette.length], shape: w.shape, width: 1.2, alpha: 0.7 })),
+       { name: "Average", color: "#ffffff", shape: avgShape, width: 3 }]);
+    // パート別（全曲）
+    const agg = {};
+    lib.forEach(s => { const bl = byLabel(s); for (const [l, v] of Object.entries(bl)) (agg[l] = agg[l] || []).push({ ...v, rel: v.lufs - s.lufs }); });
+    const labs = LABELS.filter(l => agg[l]);
+    const mean = (arr, f) => arr.reduce((t, v) => t + f(v), 0) / arr.length;
+    shapeChart($("cLab"), "Parts (all songs): spectral balance [dB re total]", labs.map(l => ({ name: l, color: LCOL[l],
+      shape: agg[l][0].shape.map((_, k) => 10 * Math.log10(mean(agg[l], v => Math.pow(10, v.shape[k] / 10)))) })));
+    $("labTable").innerHTML = `<table class="lt"><tr><th>パート</th><th>曲数</th><th>音量<br>(曲平均比)</th><th>低音%</th><th>高音%</th><th>重心Hz</th></tr>` +
+      labs.map(l => `<tr><td style="color:${LCOL[l]}">${l}</td><td>${agg[l].length}</td><td>${(mean(agg[l], v => v.rel) >= 0 ? "+" : "") + mean(agg[l], v => v.rel).toFixed(1)} dB</td>` +
+        `<td>${(mean(agg[l], v => v.share[0]) * 100).toFixed(0)}</td><td>${(mean(agg[l], v => v.share[2]) * 100).toFixed(1)}</td><td>${Math.round(mean(agg[l], v => v.centroid))}</td></tr>`).join("") + `</table>`;
+    // ひとことまとめ
+    const lu = mean(lib, s => s.lufs), crest = mean(lib, s => s.peak - s.rms), lowS = mean(whole, w => w.share[0]), hiS = mean(whole, w => w.share[2]), cen = mean(whole, w => w.centroid);
+    const msgs = [`${lib.length}曲の平均：ラウドネス <b>${lu.toFixed(1)} LUFS</b>、ピーク/RMS差 ${crest.toFixed(1)} dB、低音 ${(lowS * 100).toFixed(0)}%・高音 ${(hiS * 100).toFixed(1)}%、重心 ${Math.round(cen)} Hz。`];
+    msgs.push(lowS > 0.6 ? "低音がしっかり出ている曲が多い傾向です。" : lowS < 0.35 ? "低音は控えめで、中高音中心の曲が多い傾向です。" : "低音と中音のバランスが取れた曲が多い傾向です。");
+    msgs.push(lu > -10 ? "音圧はかなり高め（最近のポップス・ロック的）です。" : lu < -16 ? "音圧は控えめで、ダイナミクス（強弱）を残した曲が多めです。" : "音圧は標準的です。");
+    if (agg["サビ"] && agg["Aメロ"]) msgs.push(`パート別では、サビはAメロより平均 <b>${(mean(agg["サビ"], v => v.rel) - mean(agg["Aメロ"], v => v.rel)).toFixed(1)} dB</b> 大きく、高音の割合は ${pt(mean(agg["サビ"], v => v.share[2]) - mean(agg["Aメロ"], v => v.share[2]))} 違います。`);
+    $("libSummary").innerHTML = msgs.join("<br>");
+  }
+
   // ---------- UI ----------
   function setUI() {
     $("srcMic").className = mode === "mic" ? "on" : ""; $("srcTab").className = mode === "tab" ? "on" : "";
@@ -340,8 +667,8 @@
   if (!navigator.mediaDevices?.getDisplayMedia || /Android|iPhone|iPad/i.test(navigator.userAgent)) {
     $("srcTab").disabled = true; $("srcTab").textContent = "🖥 タブ（PCのみ）";
   }
-  window.addEventListener("resize", render);
-  reset();
+  window.addEventListener("resize", () => { render(); if (cur) renderSong(); renderLib(); });
+  reset(); renderLib();
 })();
 </script>
 </body>

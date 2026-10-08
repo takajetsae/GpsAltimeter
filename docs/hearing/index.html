@@ -1,0 +1,327 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#101418">
+<title>聴力の周波数特性チェック</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='20' fill='%23263238'/%3E%3Cpath d='M60 20c-15 0-25 11-25 26 0 9 6 13 6 20s-6 10-6 14 4 8 10 8 9-5 12-10 14-12 14-30c0-16-1-28-11-28z' fill='none' stroke='%234fc3f7' stroke-width='7'/%3E%3C/svg%3E">
+<style>
+  :root{--bg:#101418;--card:#1b2129;--text:#e8eaed;--sub:#9aa0a6;--line:rgba(255,255,255,.12);
+        --R:#ef5350;--L:#42a5f5;--ok:#81c784}
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--text);
+    font-family:system-ui,-apple-system,"Hiragino Sans","Noto Sans JP",sans-serif;font-size:16px}
+  main{max-width:640px;margin:0 auto;padding:16px 16px calc(28px + env(safe-area-inset-bottom))}
+  h1{font-size:19px;margin:4px 0 14px;color:var(--sub)}
+  .card{background:var(--card);border-radius:12px;padding:14px 16px;margin-bottom:12px}
+  .label{font-size:16px;font-weight:700;margin-bottom:6px}
+  .detail{font-size:15px;color:var(--sub);line-height:1.65}
+  .row{display:flex;gap:8px;flex-wrap:wrap}
+  .row>*{flex:1;min-width:0}
+  button,select{font:inherit;font-size:17px;padding:12px 8px;border-radius:10px;border:1px solid var(--line);
+    background:#26303b;color:var(--text);width:100%}
+  select{font-size:15px}
+  button.primary{background:#1565c0;border-color:#1565c0}
+  button:disabled{opacity:.45}
+  #btnHeard{font-size:26px;font-weight:700;padding:34px 8px;background:#2e7d32;border-color:#2e7d32;margin:6px 0}
+  #btnHeard.flash{background:#66bb6a}
+  .warn{background:#4e342e;border-radius:12px;padding:12px 16px;margin-bottom:12px;font-size:15px;line-height:1.6}
+  canvas{width:100%;height:320px;display:block;background:var(--card);border-radius:12px;margin-bottom:12px}
+  .big{font-size:24px;font-weight:700}
+  details{background:var(--card);border-radius:12px;margin-top:12px}
+  summary{padding:15px 16px;font-size:17px;font-weight:700;cursor:pointer;list-style:none}
+  summary::-webkit-details-marker{display:none}
+  summary::after{content:"＋";float:right;color:var(--sub)}
+  details[open] summary::after{content:"－"}
+  .help{padding:0 16px 14px;font-size:16px;line-height:1.75}
+  .help h3{font-size:16px;margin:14px 0 4px;color:var(--L)}
+  .help ul{padding-left:1.2em;margin:4px 0}
+  table.res{width:100%;border-collapse:collapse;font-size:14px;font-variant-numeric:tabular-nums;margin-top:6px}
+  table.res td,table.res th{padding:5px 4px;border-top:1px solid var(--line);text-align:center}
+</style>
+</head>
+<body>
+<main>
+  <h1>聴力の周波数特性チェック</h1>
+
+  <div class="warn">
+    ⚠ <b>医療用の聴力検査ではありません。</b>結果は使うイヤホン・スマホで変わる目安です。<br>
+    ⚠ 必ず<b>有線イヤホンかヘッドホン</b>を使い、最初はスマホの音量を<b>半分くらい</b>にしてください。大きすぎると感じたらすぐ外してください。
+  </div>
+
+  <div class="card">
+    <div class="label">① 準備（音量合わせ）</div>
+    <div class="detail">「確認音」を押すと両耳に1 kHzの音が鳴ります。<b>はっきり聞こえるが小さめ</b>（ささやき声くらい）になるよう、スマホの音量を調整してください。以後、測定中は音量を変えないでください。</div>
+    <div class="row" style="margin-top:8px">
+      <button id="btnCal">確認音（1 kHz）</button>
+      <button id="btnLR">左右確認</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="label">② 聞こえる一番小さい音を測る（左右別）</div>
+    <div class="row">
+      <select id="set">
+        <option value="std">標準（250 Hz〜8 kHz・7点）約5分</option>
+        <option value="wide">詳細（125 Hz〜16 kHz・12点）約9分</option>
+        <option value="quick">簡易（500 Hz〜4 kHz・4点）約3分</option>
+      </select>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <button id="btnStart" class="primary">測定開始</button>
+    </div>
+    <div class="detail" id="status" style="margin-top:10px">静かな場所で、目を閉じると集中しやすいです。音が「ピッ」と<b>少しでも聞こえたら</b>、下の緑のボタン（PCならスペースキー）を押してください。</div>
+    <button id="btnHeard" disabled>聞こえた！</button>
+    <div class="detail" id="progress"></div>
+  </div>
+
+  <div class="card">
+    <div class="label">③ 何 kHz まで聞こえる？（高音の上限）</div>
+    <div class="detail">8 kHzから少しずつ高くなる音を両耳に流します。<b>聞こえなくなったら</b>「聞こえなくなった」を押してください。</div>
+    <div class="row" style="margin-top:8px">
+      <button id="btnHigh">開始</button>
+    </div>
+    <div class="big" id="highNow" style="margin-top:8px"></div>
+    <div class="detail" id="highRes"></div>
+  </div>
+
+  <canvas id="chart" aria-label="聴力の周波数特性グラフ"></canvas>
+  <div class="card" style="margin-top:-4px">
+    <div class="detail"><span style="color:var(--R)">● Right（右耳）</span>　<span style="color:var(--L)">✕ Left（左耳）</span>　点線は前回の結果</div>
+    <div id="table"></div>
+    <div class="detail" id="comment" style="margin-top:8px"></div>
+    <div class="row" style="margin-top:8px">
+      <button id="btnCsv" disabled>CSV保存</button>
+      <button id="btnClear">記録を消す</button>
+    </div>
+  </div>
+
+  <details>
+    <summary>結果の見方</summary>
+    <div class="help">
+      <h3>グラフ</h3>
+      <p>横軸が周波数、縦軸が<b>聞こえた一番小さい音の大きさ</b>（デジタルの最大値を0とした dBFS）です。病院の聴力図（オージオグラム）と同じく、<b>上ほど小さな音まで聞こえる＝よく聞こえる</b>向きに描いています。</p>
+      <h3>見るポイント</h3>
+      <ul>
+        <li><b>左右の差</b>：同じイヤホンで測るので、左右の比較は比較的信頼できます。同じ周波数で<b>15〜20 dB以上</b>の差が続く場合は、一度耳鼻科で相談すると安心です。</li>
+        <li><b>周波数ごとの形</b>：イヤホン自体の特性も含まれるため、形そのものより<b>前回との変化</b>や<b>左右の差</b>を見てください。</li>
+        <li><b>高音の上限</b>：年齢とともに下がるのが普通です（目安：20代 17〜19 kHz前後、40代 14〜16 kHz前後、60代 10〜12 kHz前後。個人差が大きい）。イヤホンやスマホが出せない音は測れないので、上限はそれより低く出ることがあります。</li>
+      </ul>
+      <h3>正確に測るコツ</h3>
+      <ul>
+        <li>静かな部屋で、エアコンや換気扇を止める。</li>
+        <li>毎回<b>同じイヤホン・同じ音量</b>で測ると、経年変化を比べられます（結果はこのスマホに保存）。</li>
+        <li>ノイズキャンセリングはオフ、イコライザーや音質補正（Dolby等）もオフに。Bluetoothは遅延があるので有線がおすすめです。</li>
+      </ul>
+      <p class="sub" style="color:var(--sub)">聞こえにくさ・耳鳴り・耳の詰まり感などがある場合は、このアプリの結果にかかわらず耳鼻科を受診してください。</p>
+    </div>
+  </details>
+</main>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const SETS = {
+    quick: [1000, 500, 2000, 4000],
+    std:   [1000, 250, 500, 2000, 3000, 4000, 8000],
+    wide:  [1000, 125, 250, 500, 750, 1500, 2000, 3000, 4000, 6000, 8000, 12000, 16000]
+  };
+  const MIN_DB = -100, MAX_DB = -12;                  // 出力レベルの上下限（dBFS）
+  let ctx = null, wakeLock = null;
+  let running = false, waiting = false, pressed = false, falseAlarms = 0;
+  let res = { R: {}, L: {} }, prev = null, high = null;
+  try { const s = JSON.parse(localStorage.getItem("hearing") || "null"); if (s) { prev = s.prev || null; res = s.last || res; high = s.high ?? null; } } catch (e) {}
+
+  const amp = d => Math.pow(10, d / 20);
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  function audio() {
+    if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)();
+    if (ctx.state === "suspended") ctx.resume();
+    return ctx;
+  }
+  // ピッ（立ち上がり・立ち下がり 30 ms）
+  function tone(f, db, ear, dur) {
+    const c = audio(), o = c.createOscillator(), g = c.createGain(), p = c.createStereoPanner();
+    o.frequency.value = f; p.pan.value = ear === "R" ? 1 : ear === "L" ? -1 : 0;
+    const t = c.currentTime + 0.02, a = amp(Math.min(db, MAX_DB));
+    g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(a, t + 0.03);
+    g.gain.setValueAtTime(a, t + dur - 0.03); g.gain.linearRampToValueAtTime(0, t + dur);
+    o.connect(g).connect(p).connect(c.destination); o.start(t); o.stop(t + dur + 0.05);
+  }
+
+  // ---------- 準備 ----------
+  $("btnCal").onclick = () => { tone(1000, -30, "B", 1.5); };
+  $("btnLR").onclick = async () => {
+    $("btnLR").disabled = true;
+    $("btnLR").textContent = "右耳…"; tone(1000, -30, "R", 0.8); await sleep(1100);
+    $("btnLR").textContent = "左耳…"; tone(1000, -30, "L", 0.8); await sleep(1100);
+    $("btnLR").textContent = "左右確認"; $("btnLR").disabled = false;
+  };
+
+  // ---------- 聞こえたボタン ----------
+  function heard() {
+    if (!running) return;
+    $("btnHeard").classList.add("flash"); setTimeout(() => $("btnHeard").classList.remove("flash"), 150);
+    if (waiting) pressed = true; else falseAlarms++;
+  }
+  $("btnHeard").addEventListener("pointerdown", e => { e.preventDefault(); heard(); });
+  document.addEventListener("keydown", e => { if (e.code === "Space") { e.preventDefault(); heard(); } });
+
+  // 1回鳴らして、鳴っている間〜終了後0.9秒以内に押されたら「聞こえた」
+  async function present(f, db, ear) {
+    await sleep(500 + Math.random() * 1200);           // 間隔をランダムに（リズムで押さないように）
+    if (!running) return false;
+    pressed = false; waiting = true;
+    tone(f, db, ear, 0.6);
+    await sleep(600 + 900);
+    waiting = false;
+    return pressed;
+  }
+  // 上昇法：小さい音から上げていき、聞こえたら15 dB下げてもう一度（2回目は細かく）
+  async function threshold(f, ear) {
+    let db = -70, step = 6;
+    while (db <= MAX_DB && running) { if (await present(f, db, ear)) break; db += step; }
+    if (db > MAX_DB) return null;
+    const first = db;
+    db = first - 15;
+    // 下げた最初の音でもう聞こえるなら、さらに下げる（とても耳が良い場合）
+    while (db - 15 >= MIN_DB && running && await present(f, db, ear)) db -= 15;
+    while (db <= MAX_DB && running) { if (await present(f, db, ear)) break; db += 3; }
+    if (!running) return undefined;
+    return Math.min(first, db);                        // 小さい方（より確からしい閾値）
+  }
+
+  $("btnStart").onclick = async () => {
+    if (running) { running = false; return; }
+    audio();
+    try { wakeLock = await navigator.wakeLock?.request("screen"); } catch (e) {}
+    running = true; falseAlarms = 0;
+    $("btnStart").textContent = "中止"; $("btnHeard").disabled = false; $("btnHigh").disabled = true;
+    const list = SETS[$("set").value], newRes = { R: {}, L: {} };
+    const total = list.length * 2; let n = 0;
+    for (const ear of ["R", "L"]) {
+      $("status").innerHTML = `<b>${ear === "R" ? "右耳" : "左耳"}</b>を測ります。`;
+      await sleep(1500);
+      for (const f of list) {
+        if (!running) break;
+        n++; $("progress").textContent = `${ear === "R" ? "右耳" : "左耳"} ${fmt(f)}（${n}/${total}）`;
+        const t = await threshold(f, ear);
+        if (t === undefined) break;
+        newRes[ear][f] = t;
+        res = newRes; draw(); table();
+      }
+    }
+    const done = running; running = false;
+    $("btnStart").textContent = "測定開始"; $("btnHeard").disabled = true; $("btnHigh").disabled = false;
+    try { wakeLock?.release(); } catch (e) {}
+    if (done) {
+      let saved = {}; try { saved = JSON.parse(localStorage.getItem("hearing") || "{}"); } catch (e) {}
+      prev = saved.last && Object.keys(saved.last.R || {}).length ? saved.last : prev;
+      save();
+      $("status").innerHTML = "測定が終わりました。" + (falseAlarms > 3 ? `<br>音が鳴っていない時の押し間違いが ${falseAlarms} 回ありました。静かな場所で測り直すと精度が上がります。` : "");
+    } else $("status").textContent = "中止しました。";
+    $("progress").textContent = ""; draw(); table(); comment();
+  };
+
+  // ---------- 高音の上限 ----------
+  let hiRun = null;
+  $("btnHigh").onclick = () => {
+    const c = audio();
+    if (hiRun) {                                        // 聞こえなくなった
+      const f = hiRun.cur(); hiRun.stop(); hiRun = null;
+      high = Math.round(f); save();
+      $("btnHigh").textContent = "開始"; $("highNow").textContent = "";
+      $("highRes").innerHTML = `聞こえた上限：<b style="font-size:20px">約 ${(high / 1000).toFixed(1)} kHz</b>（このスマホの上限は ${(c.sampleRate / 2000).toFixed(1)} kHz）`;
+      $("btnStart").disabled = false; comment(); return;
+    }
+    const o = c.createOscillator(), g = c.createGain(), f0 = 8000, f1 = Math.min(20000, c.sampleRate * 0.45), T = 40;
+    const t0 = c.currentTime;
+    o.frequency.setValueAtTime(f0, t0); o.frequency.exponentialRampToValueAtTime(f1, t0 + T);
+    g.gain.setValueAtTime(0, t0); g.gain.linearRampToValueAtTime(amp(-24), t0 + 0.1);
+    o.connect(g).connect(c.destination); o.start();
+    const cur = () => f0 * Math.pow(f1 / f0, Math.min(1, (c.currentTime - t0) / T));
+    const timer = setInterval(() => {
+      $("highNow").textContent = (cur() / 1000).toFixed(1) + " kHz";
+      if (c.currentTime - t0 > T + 1) $("btnHigh").click();
+    }, 100);
+    hiRun = { cur, stop: () => { clearInterval(timer); g.gain.setTargetAtTime(0, c.currentTime, 0.02); o.stop(c.currentTime + 0.2); } };
+    $("btnHigh").textContent = "聞こえなくなった"; $("btnStart").disabled = true;
+  };
+
+  // ---------- 保存・表示 ----------
+  function save() { try { localStorage.setItem("hearing", JSON.stringify({ last: res, prev, high, date: new Date().toISOString() })); } catch (e) {} $("btnCsv").disabled = !Object.keys(res.R).length; }
+  const fmt = f => f >= 1000 ? (f / 1000) + " kHz" : f + " Hz";
+  const freqsOf = r => [...new Set([...Object.keys(r.R || {}), ...Object.keys(r.L || {})].map(Number))].sort((a, b) => a - b);
+
+  function table() {
+    const fs = freqsOf(res);
+    if (!fs.length) { $("table").innerHTML = ""; return; }
+    const cell = v => v == null ? "—" : v.toFixed(0);
+    $("table").innerHTML = `<table class="res"><tr><th>周波数</th><th style="color:var(--R)">右 dBFS</th><th style="color:var(--L)">左 dBFS</th><th>左右差</th></tr>` +
+      fs.map(f => { const r = res.R[f], l = res.L[f], d = (r != null && l != null) ? Math.abs(r - l) : null;
+        return `<tr><td>${fmt(f)}</td><td>${cell(r)}</td><td>${cell(l)}</td><td style="${d >= 15 ? "color:#ff8a65;font-weight:700" : ""}">${d == null ? "—" : d.toFixed(0)}</td></tr>`; }).join("") + `</table>`;
+  }
+  function comment() {
+    const fs = freqsOf(res), msgs = [];
+    const big = fs.filter(f => res.R[f] != null && res.L[f] != null && Math.abs(res.R[f] - res.L[f]) >= 15);
+    if (big.length >= 1) msgs.push(`左右差が15 dB以上の周波数があります（${big.map(fmt).join("、")}）。測り直しても同じなら、一度耳鼻科で相談すると安心です。`);
+    else if (fs.length) msgs.push("左右の差は大きくありません。");
+    const none = fs.filter(f => res.R[f] === null || res.L[f] === null);
+    if (none.length) msgs.push(`最大音量でも聞こえなかった周波数：${none.map(fmt).join("、")}（イヤホンが出せていない可能性もあります）。`);
+    if (high) msgs.push(`高音の上限は約 ${(high / 1000).toFixed(1)} kHz でした。`);
+    $("comment").textContent = msgs.join(" ");
+  }
+
+  const cv = $("chart"), g2 = cv.getContext("2d");
+  function draw() {
+    const dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+    if (cv.width !== Math.round(W * dpr)) { cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); }
+    const g = g2; g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, W, H);
+    const L = 46, R = W - 18, T = 28, B = H - 26, f0 = 100, f1 = 20000, top = -100, bot = -10;
+    const x = f => L + (R - L) * Math.log(f / f0) / Math.log(f1 / f0), y = d => T + (B - T) * (d - top) / (bot - top);
+    g.font = "12px system-ui"; g.fillStyle = "#9aa0a6"; g.strokeStyle = "rgba(255,255,255,.12)"; g.lineWidth = 1;
+    g.fillText("Hearing threshold [dBFS]  (up = better)", L, 16);
+    for (let d = top; d <= bot; d += 10) { g.beginPath(); g.moveTo(L, y(d)); g.lineTo(R, y(d)); g.stroke(); g.fillText(d, 6, y(d) + 4); }
+    g.textAlign = "center";
+    for (const f of [125, 250, 500, 1000, 2000, 4000, 8000, 16000]) {
+      g.beginPath(); g.moveTo(x(f), T); g.lineTo(x(f), B); g.stroke();
+      g.fillText(f >= 1000 ? f / 1000 + "k" : f, x(f), B + 16);
+    }
+    g.textAlign = "left";
+    if (high) { g.strokeStyle = "#81c784"; g.setLineDash([2, 4]); g.beginPath(); g.moveTo(x(high), T); g.lineTo(x(high), B); g.stroke(); g.setLineDash([]);
+      g.fillStyle = "#81c784"; g.fillText("upper limit", Math.min(x(high) + 4, R - 70), T + 14); }
+    const plot = (r, ear, dashed) => {
+      const pts = Object.keys(r[ear] || {}).map(Number).sort((a, b) => a - b).filter(f => r[ear][f] != null);
+      const col = ear === "R" ? "#ef5350" : "#42a5f5";
+      g.strokeStyle = col; g.fillStyle = col; g.lineWidth = dashed ? 1.2 : 2; g.globalAlpha = dashed ? 0.5 : 1;
+      g.setLineDash(dashed ? [5, 4] : []); g.beginPath();
+      pts.forEach((f, i) => i ? g.lineTo(x(f), y(r[ear][f])) : g.moveTo(x(f), y(r[ear][f]))); g.stroke(); g.setLineDash([]);
+      if (!dashed) for (const f of pts) {
+        const px = x(f), py = y(r[ear][f]);
+        if (ear === "R") { g.beginPath(); g.arc(px, py, 6, 0, 7); g.lineWidth = 2.5; g.stroke(); }
+        else { g.lineWidth = 2.5; g.beginPath(); g.moveTo(px - 5, py - 5); g.lineTo(px + 5, py + 5); g.moveTo(px + 5, py - 5); g.lineTo(px - 5, py + 5); g.stroke(); }
+      }
+      g.globalAlpha = 1;
+    };
+    if (prev) { plot(prev, "R", true); plot(prev, "L", true); }
+    plot(res, "R", false); plot(res, "L", false);
+  }
+
+  $("btnClear").onclick = () => { res = { R: {}, L: {} }; prev = null; high = null; try { localStorage.removeItem("hearing"); } catch (e) {} $("highRes").textContent = ""; draw(); table(); comment(); save(); };
+  $("btnCsv").onclick = () => {
+    const fs = freqsOf(res);
+    const rows = fs.map(f => [f, res.R[f] ?? "", res.L[f] ?? ""].join(","));
+    const csv = "freq_Hz,right_dBFS,left_dBFS\n" + rows.join("\n") + `\nupper_limit_Hz,${high ?? ""},\n`;
+    const a = document.createElement("a"), t = new Date(), p = n => String(n).padStart(2, "0");
+    a.download = `hearing_${t.getFullYear()}${p(t.getMonth()+1)}${p(t.getDate())}.csv`;
+    a.href = URL.createObjectURL(new Blob(["﻿" + csv], { type: "text/csv" })); a.click();
+  };
+  if (high) $("highRes").innerHTML = `前回の上限：約 ${(high / 1000).toFixed(1)} kHz`;
+  $("btnCsv").disabled = !Object.keys(res.R).length;
+  window.addEventListener("resize", draw);
+  draw(); table(); comment();
+})();
+</script>
+</body>
+</html>

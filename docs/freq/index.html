@@ -1,0 +1,320 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#101418">
+<title>周波数特性測定</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='20' fill='%23263238'/%3E%3Cpath d='M10 60 C30 60 35 35 50 35 S70 50 90 70' stroke='%234fc3f7' stroke-width='8' fill='none'/%3E%3C/svg%3E">
+<style>
+  :root{--bg:#101418;--card:#1b2129;--text:#e8eaed;--sub:#9aa0a6;--line:rgba(255,255,255,.12);
+        --c1:#4fc3f7;--c2:#ffb74d;--c3:#81c784;--warn:#ff8a65}
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--text);
+    font-family:system-ui,-apple-system,"Hiragino Sans","Noto Sans JP",sans-serif;font-size:16px}
+  main{max-width:640px;margin:0 auto;padding:16px 16px calc(28px + env(safe-area-inset-bottom))}
+  h1{font-size:19px;margin:4px 0 14px;color:var(--sub)}
+  .card{background:var(--card);border-radius:12px;padding:14px 16px;margin-bottom:12px}
+  .label{font-size:16px;font-weight:700;margin-bottom:6px}
+  .detail{font-size:15px;color:var(--sub);line-height:1.65}
+  .row{display:flex;gap:8px;flex-wrap:wrap}
+  .row>*{flex:1;min-width:0}
+  select{width:100%;font-size:15px !important}
+  button,select{font:inherit;font-size:17px;padding:12px 8px;border-radius:10px;border:1px solid var(--line);
+    background:#26303b;color:var(--text)}
+  button.primary{background:#1565c0;border-color:#1565c0}
+  button.stop{background:#b71c1c;border-color:#b71c1c}
+  button:disabled{opacity:.45}
+  label.f{display:block;font-size:15px;color:var(--sub);margin:10px 0 4px}
+  input[type=range]{width:100%}
+  canvas{width:100%;height:300px;display:block;background:var(--card);border-radius:12px;margin-bottom:12px}
+  .big{font-size:28px;font-variant-numeric:tabular-nums}
+  .warn{background:#4e342e;border-radius:12px;padding:12px 16px;margin-bottom:12px;font-size:15px;line-height:1.6}
+  .legend span{display:inline-block;margin-right:14px;font-size:14px}
+  .legend i{display:inline-block;width:16px;height:4px;border-radius:2px;margin-right:5px;vertical-align:middle}
+  details{background:var(--card);border-radius:12px;margin-top:12px}
+  summary{padding:15px 16px;font-size:17px;font-weight:700;cursor:pointer;list-style:none}
+  summary::-webkit-details-marker{display:none}
+  summary::after{content:"＋";float:right;color:var(--sub)}
+  details[open] summary::after{content:"－"}
+  .help{padding:0 16px 14px;font-size:16px;line-height:1.75}
+  .help h3{font-size:16px;margin:14px 0 4px;color:var(--c1)}
+  .help ul{padding-left:1.2em;margin:4px 0}
+  .sub{color:var(--sub);font-size:15px}
+  table.res{width:100%;border-collapse:collapse;font-size:14px;font-variant-numeric:tabular-nums}
+  table.res td,table.res th{padding:4px 6px;border-top:1px solid var(--line);text-align:right}
+</style>
+</head>
+<body>
+<main>
+  <h1>周波数特性測定（Web版）</h1>
+
+  <div class="warn">⚠ 最初は<b>スマホの音量を小さめ</b>にしてください。イヤホン・ヘッドホンを耳に当てたまま測定しないでください。</div>
+
+  <div class="card">
+    <div class="label">測定の設定</div>
+    <div class="row">
+      <div><label class="f">周波数の範囲</label>
+        <select id="range">
+          <option value="20,20000">20 Hz 〜 20 kHz</option>
+          <option value="50,16000" selected>50 Hz 〜 16 kHz</option>
+          <option value="100,10000">100 Hz 〜 10 kHz</option>
+          <option value="200,8000">200 Hz 〜 8 kHz</option>
+        </select></div>
+      <div><label class="f">細かさ（点の数）</label>
+        <select id="res">
+          <option value="3">1/3 オクターブ（速い）</option>
+          <option value="6" selected>1/6 オクターブ</option>
+          <option value="12">1/12 オクターブ（細かい）</option>
+          <option value="24">1/24 オクターブ（とても細かい）</option>
+        </select></div>
+    </div>
+    <label class="f">出力レベル：<span id="lvlTxt">-12</span> dBFS</label>
+    <input type="range" id="lvl" min="-40" max="-3" step="1" value="-12">
+    <div class="row" style="margin-top:12px">
+      <button id="btnRun" class="primary">測定開始</button>
+      <button id="btnRef">基準として測定</button>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <button id="btnTone">1 kHzを鳴らす</button>
+      <button id="btnCsv" disabled>CSV保存</button>
+    </div>
+    <div class="detail" id="status" style="margin-top:10px">「測定開始」を押すとマイクの許可を求められます。</div>
+    <div class="detail">入力レベル（1 kHz付近）：<span id="inLvl">---</span></div>
+  </div>
+
+  <canvas id="chart" aria-label="周波数特性グラフ"></canvas>
+  <div class="card" style="margin-top:-4px">
+    <div class="legend">
+      <span><i style="background:var(--c1)"></i>Measured</span>
+      <span><i style="background:var(--c2)"></i>Reference</span>
+      <span><i style="background:var(--c3)"></i>Measured − Reference</span>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <select id="view">
+        <option value="raw">測定値そのまま</option>
+        <option value="norm">基準との差（補正後）</option>
+      </select>
+      <button id="btnClearRef">基準を消す</button>
+    </div>
+    <div class="detail" id="summary" style="margin-top:8px"></div>
+  </div>
+
+  <details>
+    <summary>使い方</summary>
+    <div class="help">
+      <h3>しくみ</h3>
+      <p>スマホから<b>正弦波</b>を周波数を少しずつ変えながら鳴らし、マイクで受けた大きさを周波数ごとに測ります（ステップ正弦波法）。グラフの縦軸は入力の大きさ（dBFS：デジタルの最大値を0とした相対値）、横軸は周波数です。</p>
+      <h3>スピーカー・イヤホンを測る</h3>
+      <ul>
+        <li>静かな部屋で、測りたいスピーカー（またはイヤホン）とスマホのマイクを近づけて置き、「測定開始」。</li>
+        <li>スマホ自身のスピーカーとマイクで測ると、スマホのスピーカーの特性（低音はほぼ出ない）を測ることになります。</li>
+      </ul>
+      <h3>マイク・スピーカーの癖を差し引く（基準）</h3>
+      <ul>
+        <li>まず<b>基準となる状態</b>（例：回路を通さず直結、評判の良いスピーカー）で「基準として測定」。</li>
+        <li>次に測りたいもので「測定開始」→ 表示を「基準との差」にすると、<b>測定系の癖を差し引いた特性</b>が見られます。</li>
+        <li>基準はこのスマホに保存され、次回も使えます。</li>
+      </ul>
+      <h3>自作のアンプ・フィルタ回路を測る</h3>
+      <ul>
+        <li>スマホの<b>ヘッドホン出力 → 測りたい回路 → スマホのマイク入力</b>とつなぎます（4極TRRSの分岐ケーブル、またはUSB-Cオーディオアダプタ）。</li>
+        <li>まず回路を通さず出力→入力を直結（減衰器経由）して「基準として測定」し、次に回路を入れて「測定開始」→「基準との差」で、回路だけの特性になります。</li>
+        <li>マイク入力は数十 mV程度で飽和します。<b>抵抗分圧で20〜40 dB程度減衰</b>させて入れてください。「1 kHzを鳴らす」で入力レベルを確認し、−6 dBFSより小さくなるよう調整します。</li>
+        <li>ヘッドホン出力やマイク入力にDCをかけないでください（必要ならコンデンサで切る）。</li>
+      </ul>
+      <h3>精度について</h3>
+      <ul>
+        <li>スマホのマイクは数十Hz以下と10 kHz以上で感度が下がります。基準測定で差し引くのが前提です。</li>
+        <li>雑音の多い場所や、出力が小さすぎると、グラフがギザギザになります。出力レベルを上げるか静かな場所で。</li>
+        <li>位相は測っていません（大きさのみ）。</li>
+      </ul>
+      <h3>CSV</h3>
+      <p class="sub">列：freq_Hz, measured_dB, reference_dB, normalized_dB</p>
+    </div>
+  </details>
+</main>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  let ctx = null, stream = null, analyser = null, osc = null, gain = null, buf = null;
+  let running = false, toneOn = false, wakeLock = null;
+  let meas = [], ref = [];
+  try { ref = JSON.parse(localStorage.getItem("freqRef") || "[]"); } catch (e) { ref = []; }
+
+  $("lvl").oninput = () => { $("lvlTxt").textContent = $("lvl").value; if (gain && (running || toneOn)) gain.gain.setTargetAtTime(dbToAmp(+$("lvl").value), ctx.currentTime, 0.02); };
+  const dbToAmp = d => Math.pow(10, d / 20);
+
+  async function ensureAudio() {
+    if (ctx) { if (ctx.state === "suspended") await ctx.resume(); return; }
+    ctx = new (window.AudioContext || window.webkitAudioContext)();
+    stream = await navigator.mediaDevices.getUserMedia({ audio: {
+      echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1 } });
+    const src = ctx.createMediaStreamSource(stream);
+    analyser = ctx.createAnalyser(); analyser.fftSize = 32768; analyser.smoothingTimeConstant = 0;
+    src.connect(analyser);
+    const mute = ctx.createGain(); mute.gain.value = 0; analyser.connect(mute); mute.connect(ctx.destination);  // 確実に処理させる（音は出さない）
+    buf = new Float32Array(analyser.fftSize);
+    gain = ctx.createGain(); gain.gain.value = 0; gain.connect(ctx.destination);
+    osc = ctx.createOscillator(); osc.type = "sine"; osc.frequency.value = 1000; osc.connect(gain); osc.start();
+    setInterval(updateInLevel, 300);
+  }
+
+  // 指定周波数の振幅（Goertzel + Hann窓）
+  function amplitudeAt(f, n) {
+    analyser.getFloatTimeDomainData(buf);
+    const N = Math.min(n, buf.length), start = buf.length - N, fs = ctx.sampleRate;
+    const w = 2 * Math.PI * f / fs, coeff = 2 * Math.cos(w);
+    let s1 = 0, s2 = 0, wsum = 0;
+    for (let i = 0; i < N; i++) {
+      const h = 0.5 - 0.5 * Math.cos(2 * Math.PI * i / (N - 1)); wsum += h;
+      const s0 = buf[start + i] * h + coeff * s1 - s2; s2 = s1; s1 = s0;
+    }
+    const re = s1 - s2 * Math.cos(w), im = s2 * Math.sin(w);
+    const a = 2 * Math.sqrt(re * re + im * im) / wsum;
+    return 20 * Math.log10(Math.max(a, 1e-9));
+  }
+  function updateInLevel() {
+    if (!analyser) return;
+    const d = amplitudeAt(toneOn ? 1000 : (running ? curF : 1000), 4096);
+    $("inLvl").textContent = d.toFixed(1) + " dBFS" + (d > -3 ? "（大きすぎ・飽和の可能性）" : "");
+  }
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  let curF = 1000;
+
+  function freqList() {
+    const [f0, f1] = $("range").value.split(",").map(Number), per = +$("res").value;
+    const n = Math.round(Math.log2(f1 / f0) * per);
+    return Array.from({ length: n + 1 }, (_, i) => f0 * Math.pow(f1 / f0, i / n));   // 両端を必ず含む
+  }
+
+  async function sweep(asRef) {
+    if (running) { running = false; return; }
+    try { await ensureAudio(); } catch (e) { $("status").textContent = "マイクを使えません：" + e.message; return; }
+    if (toneOn) toggleTone();
+    try { wakeLock = await navigator.wakeLock?.request("screen"); } catch (e) {}
+    running = true; setButtons();
+    const fs = ctx.sampleRate, list = freqList().filter(f => f < fs / 2 * 0.95), out = [];
+    if (asRef) ref = []; else meas = [];
+    const level = dbToAmp(+$("lvl").value);
+    osc.frequency.setValueAtTime(list[0], ctx.currentTime);
+    gain.gain.setTargetAtTime(level, ctx.currentTime, 0.02);
+    await sleep(500);
+    for (let i = 0; i < list.length && running; i++) {
+      const f = list[i]; curF = f;
+      osc.frequency.setValueAtTime(f, ctx.currentTime);
+      const N = Math.min(buf.length, Math.max(4096, Math.ceil(30 * fs / f)));   // 30周期以上
+      await sleep(220 + N / fs * 1000);                                        // 遅延＋窓の長さ
+      out.push([f, amplitudeAt(f, N)]);
+      if (asRef) ref = out.slice(); else meas = out.slice();
+      $("status").textContent = `${asRef ? "基準" : "測定"}中… ${Math.round(f)} Hz（${i + 1}/${list.length}）`;
+      draw();
+    }
+    gain.gain.setTargetAtTime(0, ctx.currentTime, 0.02);
+    const done = running; running = false; setButtons();
+    try { wakeLock?.release(); } catch (e) {}
+    if (asRef && done) { try { localStorage.setItem("freqRef", JSON.stringify(ref)); } catch (e) {} }
+    $("status").textContent = done ? (asRef ? "基準の測定が終わりました（保存しました）" : "測定が終わりました") : "中止しました";
+    if (done && !asRef && ref.length) $("view").value = "norm";
+    summarize(); draw();
+  }
+
+  function toggleTone() {
+    ensureAudio().then(() => {
+      toneOn = !toneOn; curF = 1000;
+      osc.frequency.setValueAtTime(1000, ctx.currentTime);
+      gain.gain.setTargetAtTime(toneOn ? dbToAmp(+$("lvl").value) : 0, ctx.currentTime, 0.02);
+      $("btnTone").textContent = toneOn ? "止める" : "1 kHzを鳴らす";
+    }).catch(e => { $("status").textContent = "マイクを使えません：" + e.message; });
+  }
+
+  function setButtons() {
+    $("btnRun").textContent = running ? "中止" : "測定開始";
+    $("btnRun").className = running ? "stop" : "primary";
+    $("btnRef").disabled = running; $("btnTone").disabled = running;
+    $("btnCsv").disabled = running || !meas.length;
+  }
+
+  // 基準を測定値の周波数に合わせて補間（対数周波数で線形）
+  function refAt(f) {
+    if (!ref.length) return null;
+    if (f <= ref[0][0]) return ref[0][1];
+    if (f >= ref[ref.length - 1][0]) return ref[ref.length - 1][1];
+    for (let i = 1; i < ref.length; i++) if (ref[i][0] >= f) {
+      const [f0, d0] = ref[i - 1], [f1, d1] = ref[i], t = Math.log(f / f0) / Math.log(f1 / f0);
+      return d0 + (d1 - d0) * t;
+    }
+    return null;
+  }
+  const normData = () => meas.map(([f, d]) => { const r = refAt(f); return [f, r == null ? null : d - r]; });
+
+  function summarize() {
+    const data = ($("view").value === "norm" && ref.length) ? normData().filter(x => x[1] != null) : meas;
+    if (!data.length) { $("summary").textContent = ""; return; }
+    const at1k = data.reduce((m, x) => Math.abs(Math.log(x[0] / 1000)) < Math.abs(Math.log(m[0] / 1000)) ? x : m);
+    const ref0 = at1k[1];
+    const band = d => { const ok = data.filter(x => x[1] >= ref0 + d); return ok.length ? [ok[0][0], ok[ok.length - 1][0]] : null; };
+    const b3 = band(-3), b6 = band(-6);
+    const fmt = f => f >= 1000 ? (f / 1000).toFixed(f >= 10000 ? 0 : 1) + " kHz" : Math.round(f) + " Hz";
+    const mx = data.reduce((m, x) => x[1] > m[1] ? x : m), mn = data.reduce((m, x) => x[1] < m[1] ? x : m);
+    $("summary").innerHTML =
+      `1 kHz付近：<b>${ref0.toFixed(1)} dB</b><br>` +
+      (b3 ? `−3 dB帯域（1 kHz基準）：<b>${fmt(b3[0])} 〜 ${fmt(b3[1])}</b><br>` : "") +
+      (b6 ? `−6 dB帯域：${fmt(b6[0])} 〜 ${fmt(b6[1])}<br>` : "") +
+      `最大 ${mx[1].toFixed(1)} dB（${fmt(mx[0])}）／ 最小 ${mn[1].toFixed(1)} dB（${fmt(mn[0])}）`;
+  }
+
+  // ---------- グラフ ----------
+  const cv = $("chart"), g = cv.getContext("2d");
+  function draw() {
+    const dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+    if (cv.width !== Math.round(W * dpr)) { cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); }
+    g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, W, H);
+    const L = 44, R = W - 18, T = 26, B = H - 24;
+    const [f0, f1] = $("range").value.split(",").map(Number);
+    const norm = $("view").value === "norm" && ref.length;
+    const series = norm ? [[normData(), "#81c784"]] : [[ref, "#ffb74d"], [meas, "#4fc3f7"]];
+    const vals = series.flatMap(s => s[0].map(x => x[1])).filter(v => v != null && isFinite(v));
+    let hi = vals.length ? Math.max(...vals) : 0, lo = vals.length ? Math.min(...vals) : -60;
+    hi = Math.ceil((hi + 3) / 10) * 10; lo = Math.max(Math.floor((lo - 3) / 10) * 10, hi - 100);
+    if (hi - lo < 20) lo = hi - 20;
+    const x = f => L + (R - L) * Math.log(f / f0) / Math.log(f1 / f0), y = d => T + (B - T) * (hi - d) / (hi - lo);
+    g.font = "12px system-ui"; g.fillStyle = "#9aa0a6"; g.strokeStyle = "rgba(255,255,255,.12)"; g.lineWidth = 1;
+    g.fillText(norm ? "Relative level [dB]" : "Level [dBFS]", L, 16);
+    const step = (hi - lo) > 60 ? 20 : 10;
+    for (let d = lo; d <= hi; d += step) { g.beginPath(); g.moveTo(L, y(d)); g.lineTo(R, y(d)); g.stroke(); g.fillText(d, 6, y(d) + 4); }
+    for (const f of [20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000]) {
+      if (f < f0 || f > f1) continue;
+      g.beginPath(); g.moveTo(x(f), T); g.lineTo(x(f), B); g.stroke();
+      g.textAlign = "center"; g.fillText(f >= 1000 ? f / 1000 + "k" : f, x(f), B + 16); g.textAlign = "left";
+    }
+    g.textAlign = "right"; g.fillText("Frequency [Hz]", R, 16); g.textAlign = "left";
+    for (const [d, c] of series) {
+      g.strokeStyle = c; g.lineWidth = 2.2; g.lineJoin = "round"; g.beginPath(); let pen = false;
+      for (const [f, v] of d) { if (v == null || f < f0 || f > f1) { pen = false; continue; } pen ? g.lineTo(x(f), y(v)) : g.moveTo(x(f), y(v)); pen = true; }
+      g.stroke();
+    }
+    if (!vals.length) { g.fillStyle = "#9aa0a6"; g.fillText("No data", L + 10, (T + B) / 2); }
+  }
+
+  $("btnRun").onclick = () => sweep(false);
+  $("btnRef").onclick = () => sweep(true);
+  $("btnTone").onclick = toggleTone;
+  $("view").onchange = () => { summarize(); draw(); };
+  $("range").onchange = draw;
+  $("btnClearRef").onclick = () => { ref = []; try { localStorage.removeItem("freqRef"); } catch (e) {} $("view").value = "raw"; summarize(); draw(); };
+  $("btnCsv").onclick = () => {
+    const rows = meas.map(([f, d]) => { const r = refAt(f); return [f.toFixed(2), d.toFixed(2), r == null ? "" : r.toFixed(2), r == null ? "" : (d - r).toFixed(2)].join(","); });
+    const blob = new Blob(["freq_Hz,measured_dB,reference_dB,normalized_dB\n" + rows.join("\n") + "\n"], { type: "text/csv" });
+    const a = document.createElement("a"), t = new Date(), p = n => String(n).padStart(2, "0");
+    a.download = `freqresp_${t.getFullYear()}${p(t.getMonth()+1)}${p(t.getDate())}_${p(t.getHours())}${p(t.getMinutes())}.csv`;
+    a.href = URL.createObjectURL(blob); a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  };
+  window.addEventListener("resize", draw);
+  if (ref.length) $("status").textContent = "保存済みの基準があります（オレンジの線）。";
+  draw();
+})();
+</script>
+</body>
+</html>

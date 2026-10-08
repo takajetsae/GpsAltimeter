@@ -62,6 +62,13 @@
   </div>
 
   <div class="card">
+    <div class="label">⓪-2 周りの静かさチェック</div>
+    <div class="detail">マイクで周りの音を3秒聞いて、測定に向いているか判定します（マイクの許可が必要です）。</div>
+    <div class="row" style="margin-top:8px"><button id="btnNoise">周りの音をチェック</button></div>
+    <div id="noiseRes" class="detail" style="margin-top:8px"></div>
+  </div>
+
+  <div class="card">
     <div class="label">① 準備（音量合わせ）</div>
     <div class="detail">「確認音」を押すと両耳に1 kHzの音が鳴ります。<b>普通の会話より少し小さいくらいで、はっきり聞こえる</b>大きさになるよう、スマホの音量を調整してください（多くの機種でメディア音量の半分前後）。測定中は音量を変えないでください。次回比べるために、音量バーの位置をメモしておくと確実です。</div>
     <div class="row" style="margin-top:8px">
@@ -181,6 +188,49 @@
     o.connect(g).connect(p).connect(c.destination); o.start(t); o.stop(t + dur + 0.05);
   }
 
+
+  // ---------- 周りの静かさチェック（マイク、帯域ごとのレベル） ----------
+  $("btnNoise").onclick = async () => {
+    const btn = $("btnNoise"); btn.disabled = true;
+    let st;
+    try {
+      st = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+    } catch (e) { $("noiseRes").textContent = "マイクを使えません：" + e.message; btn.disabled = false; return; }
+    const c = audio(), src = c.createMediaStreamSource(st), an = c.createAnalyser();
+    an.fftSize = 8192; an.smoothingTimeConstant = 0; src.connect(an);
+    const mute = c.createGain(); mute.gain.value = 0; an.connect(mute).connect(c.destination);
+    const bands = [250, 500, 1000, 2000, 4000], acc = bands.map(() => 0), spec = new Float32Array(an.frequencyBinCount);
+    let n = 0, total = 0;
+    const binHz = c.sampleRate / an.fftSize;
+    for (let k = 0; k < 30; k++) {
+      btn.textContent = `計測中… ${Math.ceil((30 - k) / 10)}`;
+      await sleep(100);
+      an.getFloatFrequencyData(spec);
+      bands.forEach((fc, i) => {
+        let pw = 0; const lo = Math.floor(fc / Math.SQRT2 / binHz), hi = Math.ceil(fc * Math.SQRT2 / binHz);
+        for (let b = lo; b <= hi; b++) pw += Math.pow(10, spec[b] / 10);
+        acc[i] += pw;
+      });
+      let tp = 0; for (let b = Math.floor(100 / binHz); b < Math.ceil(8000 / binHz); b++) tp += Math.pow(10, spec[b] / 10);
+      total += tp; n++;
+    }
+    st.getTracks().forEach(t => t.stop()); src.disconnect();
+    const lv = acc.map(v => 10 * Math.log10(v / n + 1e-20)), tot = 10 * Math.log10(total / n + 1e-20);
+    // スマホのマイク感度は機種差が大きいので、目安として判定
+    const judge = d => d < -70 ? ["静か", "#81c784"] : d < -58 ? ["やや騒がしい", "#ffb74d"] : ["騒がしい", "#ef5350"];
+    const [word, col] = judge(tot);
+    const low = Math.max(lv[0], lv[1]), lowBad = low >= -68;
+    $("noiseRes").innerHTML =
+      `判定：<b style="color:${col};font-size:20px">${word}</b>（全体 ${tot.toFixed(0)} dBFS）<br>` +
+      bands.map((f, i) => { const [w, cl] = judge(lv[i] - 6); const wpx = Math.max(4, Math.min(190, (lv[i] + 95) * 2.6));
+        return `<div style="display:flex;align-items:center;gap:8px;margin:2px 0"><span style="width:60px;text-align:right">${f >= 1000 ? f / 1000 + " kHz" : f + " Hz"}</span>` +
+               `<span style="height:10px;width:${wpx}px;background:${cl};border-radius:5px"></span><span style="font-size:13px">${lv[i].toFixed(0)}</span></div>`; }).join("") +
+      (word === "静か" ? "測定に向いています。" :
+       lowBad ? "低い音（エアコン・冷蔵庫・車など）が目立ちます。<b>250〜500 Hzの結果が実際より悪く</b>出やすいので、静かな時間・場所で測るのがおすすめです。"
+              : "話し声や物音が入りやすい環境です。静かな場所で測るのがおすすめです。") +
+      `<br><span style="font-size:13px">※スマホのマイク感度には機種差があるため目安です。</span>`;
+    btn.textContent = "もう一度チェック"; btn.disabled = false;
+  };
   // ---------- 準備 ----------
   $("btnCal").onclick = async () => { keepAlive(true); if (isBT()) await sleep(800); tone(1000, -30, "B", 1.5); await sleep(2000); if (!running) keepAlive(false); };
   $("btnLR").onclick = async () => {
